@@ -26,10 +26,15 @@ bot = discord.Bot()
 
 sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLIENT_ID,
                                                            client_secret=SPOTIFY_CLIENT_SECRET))
-
+######### NOTES ##########
+# The Queue holds YouTube URLs
+# The Current Playing holds Specific YT video info
+# This program is a mess
+# I'm sorry
+##########################
 ######### GLOBAL #########
 ytdlopts = {
-    'format': 'bestaudio/best',
+    'format': 'bestaudio[ext!=webm]',
     'outtmpl': 'downloads/%(extractor)s-%(id)s-%(title)s.%(ext)s',
     'restrictfilenames': True,
     'noplaylist': True,
@@ -100,26 +105,29 @@ async def join(ctx):
 
 @bot.slash_command(name="play", description="Plays a song from a youtube link or a search query.")
 async def play(ctx, url: str):
-    if url_rx.match(url):
-        if "youtube" in url:
-            song_data = ytdl.extract_info(url, download=False)
-            if song_data is None:
-                await ctx.respond("Invalid URL")
+    with ctx.typing():
+        if url_rx.match(url):
+            if "youtube" in url:
+                song_data = ytdl.extract_info(url, download=False)
+                if song_data is None:
+                    await ctx.respond("Invalid URL")
+                if ctx.voice_client is None:
+                    await ctx.author.voice.channel.connect()
+                await __queueManager(ctx, url)
+        else:
+            results = sp.search(q=url, limit=1)
+            try:
+                song_data = results['tracks']['items'][0]
+            except IndexError:
+                await ctx.respond("No results found")
+                pass
+            # search Youtubedl for the song
+            song_data = ytdl.extract_info(f"ytsearch:{song_data['name']} by {song_data['artists'][0]['name']}. Music",
+                                          download=False)
             if ctx.voice_client is None:
                 await ctx.author.voice.channel.connect()
-            await __queueManager(ctx, url)
-    else:
-        results = sp.search(q=url, limit=1)
-        if results['tracks']['total'] == 0:
-            await ctx.respond("No results found")
-        song_data = results['tracks']['items'][0]
-        # search Youtubedl for the song
-        song_data = ytdl.extract_info(f"ytsearch:{song_data['name']} by {song_data['artists'][0]['name']}. Music",
-                                      download=False)
-        if ctx.voice_client is None:
-            await ctx.author.voice.channel.connect()
-        print("Found: " + song_data['entries'][0]['webpage_url'])
-        await __queueManager(ctx, song_data['entries'][0]['webpage_url'])
+            print("Found: " + song_data['entries'][0]['webpage_url'])
+            await __queueManager(ctx, song_data['entries'][0]['webpage_url'])
 
 
 @bot.slash_command()
@@ -162,7 +170,8 @@ async def viewQueue(ctx):
     for index, song in zip(range(50), QUEUE.queue):
         with ytdl:
             song_info = ytdl.extract_info(song, download=False)
-        embed.add_field(name=f"{index + 1}. {song_info['title']}", value=f"Duration: {parse_duration(song_info['duration'])}",
+        embed.add_field(name=f"{index + 1}. {song_info['title']}",
+                        value=f"Duration: {parse_duration(song_info['duration'])}",
                         inline=False)
     await ctx.respond(embed=embed)
 
@@ -249,11 +258,12 @@ async def process_audio(ctx, url):
                 pass
         print(ffmpegopts['before_options'], ffmpegopts['options'], url)
         try:
-            await ctx.voice_client.play(discord.FFmpegPCMAudio(url, before_options=ffmpegopts['before_options'],
-                                                            options=ffmpegopts['options']),
-                                        after=lambda e: partial(_handle_error, ctx))
+            ctx.voice_client.play(discord.FFmpegPCMAudio(url, before_options=ffmpegopts['before_options'],
+                                                               options=ffmpegopts['options']),
+                                        after=lambda o: asyncio.run_coroutine_threadsafe(__queueManager
+                                                                                         (ctx, None), bot.loop))
         except discord.errors.ApplicationCommandInvokeError as e:
-            await ctx.channel.send("Something went wrong "+str(e))
+            await ctx.channel.send("Something went wrong " + str(e))
     except discord.ClientException:
         pass
 
@@ -280,6 +290,7 @@ async def __queueManager(ctx, song_data=None):
             QUEUE.put(song_data)
             await ctx.channel.send(f"Added {song_info['title']} to the queue at position {QUEUE.qsize()}")
         elif not QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
+            # OMG it's the actual bot requesting more music better give it some
             song = QUEUE.get()
             with ytdl:
                 CP = ytdl.extract_info(song, download=False)
@@ -290,8 +301,8 @@ async def __queueManager(ctx, song_data=None):
             await leave(ctx)
 
 
-def _handle_error(ctx, error):
-    asyncio.run_coroutine_threadsafe(__queueManager(ctx, None), bot.loop)
+#def _handle_error(ctx, error):
+
 
 
 # Loop every 1 second to check what the progress of music is
