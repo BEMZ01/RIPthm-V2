@@ -91,9 +91,9 @@ async def ping(ctx):
 async def join(ctx):
     """Joins the voice channel you are currently in."""
     if ctx.voice_client is not None:
-        return await ctx.respond("I am already in a voice channel")
+        await ctx.respond("I am already in a voice channel")
     if ctx.author.voice is None:
-        return await ctx.respond("You are not in a voice channel")
+        await ctx.respond("You are not in a voice channel")
     await ctx.author.voice.channel.connect()
     await ctx.respond(f"Joined {ctx.author.voice.channel}")
 
@@ -105,22 +105,20 @@ async def play(ctx, url: str):
             song_data = ytdl.extract_info(url, download=False)
             if song_data is None:
                 await ctx.respond("Invalid URL")
-                return
             if ctx.voice_client is None:
-                await ctx.author.voice.channel.join()
+                await ctx.author.voice.channel.connect()
             await __queueManager(ctx, url)
     else:
         results = sp.search(q=url, limit=1)
         if results['tracks']['total'] == 0:
             await ctx.respond("No results found")
-            return
         song_data = results['tracks']['items'][0]
         # search Youtubedl for the song
         song_data = ytdl.extract_info(f"ytsearch:{song_data['name']} by {song_data['artists'][0]['name']}. Music",
                                       download=False)
         if ctx.voice_client is None:
             await ctx.author.voice.channel.connect()
-        print("Found: "+song_data['entries'][0]['webpage_url'])
+        print("Found: " + song_data['entries'][0]['webpage_url'])
         await __queueManager(ctx, song_data['entries'][0]['webpage_url'])
 
 
@@ -157,15 +155,14 @@ async def viewQueue(ctx):
     global CP
     embed = discord.Embed(title="Queue", description="List of songs in the queue", color=0xeee657)
     try:
-        embed.add_field(name=f"0. {CP['title']}", value=f"Duration: {CP['duration']}",
+        embed.add_field(name=f"0. {CP['title']}", value=f"Duration: {parse_duration(CP['duration'])}",
                         inline=False)
     except KeyError:
         await ctx.respond("The queue is empty")
-        return
     for index, song in zip(range(50), QUEUE.queue):
         with ytdl:
             song_info = ytdl.extract_info(song, download=False)
-        embed.add_field(name=f"{index + 1}. {song_info['title']}", value=f"Duration: {song_info['duration']}",
+        embed.add_field(name=f"{index + 1}. {song_info['title']}", value=f"Duration: {parse_duration(song_info['duration'])}",
                         inline=False)
     await ctx.respond(embed=embed)
 
@@ -219,7 +216,7 @@ async def nowplaying(ctx):
         embed.add_field(name="Artists", value=f"{CP['artists']}", inline=False)
     except KeyError:
         embed.add_field(name="Artists", value="Unknown", inline=False)
-    embed.add_field(name="Duration", value=f"{CP['duration']}", inline=False)
+    embed.add_field(name="Duration", value=f"{parse_duration(CP['duration'])}", inline=False)
     embed.add_field(name="Views", value=f"{CP['view_count']}", inline=False)
     embed.add_field(name="URL", value=f"{CP['webpage_url']}", inline=False)
     embed.add_field(name="Upload Date", value=f"{CP['upload_date']}", inline=False)
@@ -243,24 +240,28 @@ async def process_audio(ctx, url):
     ctx: context
     url: url of the song (Direct link to the song)"""
     global QUEUE
-    print("Told to play \n"+url)
+    print("Told to play \n" + url)
     try:
         if ctx.voice_client is None:
             try:
                 await ctx.author.voice.channel.join()
             except TypeError:
                 pass
-        await ctx.voice_client.play(discord.FFmpegPCMAudio(url, before_options=ffmpegopts['before_options'],
-                                    options=ffmpegopts['options']),
-                                    after=lambda e: partial(_handle_error, ctx, e))
+        print(ffmpegopts['before_options'], ffmpegopts['options'], url)
+        try:
+            await ctx.voice_client.play(discord.FFmpegPCMAudio(url, before_options=ffmpegopts['before_options'],
+                                                            options=ffmpegopts['options']),
+                                        after=lambda e: partial(_handle_error, ctx))
+        except discord.errors.ApplicationCommandInvokeError as e:
+            await ctx.channel.send("Something went wrong "+str(e))
     except discord.ClientException:
-        return False
+        pass
 
 
 async def __queueManager(ctx, song_data=None):
     global QUEUE
     global CP
-    if song_data is not None: # Chill it's for song name
+    if song_data is not None:  # Chill it's for song name
         with ytdl:
             song_info = ytdl.extract_info(song_data, download=False)
     print(ctx.voice_client.is_paused(), ctx.voice_client.is_playing())
@@ -275,29 +276,21 @@ async def __queueManager(ctx, song_data=None):
                     CP = ytdl.extract_info(song, download=False)
                 await ctx.channel.send(f"Now playing {CP['title']}")
                 await process_audio(ctx, CP['formats'][0]['url'])
-            return
         elif not QUEUE.empty() and song_data is not None:
             QUEUE.put(song_data)
             await ctx.channel.send(f"Added {song_info['title']} to the queue at position {QUEUE.qsize()}")
-            return
         elif not QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
             song = QUEUE.get()
             with ytdl:
                 CP = ytdl.extract_info(song, download=False)
             await ctx.channel.send(f"Now playing {CP['title']}")
             await process_audio(ctx, CP['formats'][0]['url'])
-            return
         elif QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
             await ctx.channel.send("The queue is empty")
             await leave(ctx)
-            return
 
 
 def _handle_error(ctx, error):
-    try:
-        print(ctx, error)
-    except AttributeError:
-        print(ctx)
     asyncio.run_coroutine_threadsafe(__queueManager(ctx, None), bot.loop)
 
 
@@ -307,5 +300,24 @@ async def progress():
     global CP
     if CP is not None:
         print(f"{CP['title']} is {CP['duration']}")
+
+
+def parse_duration(duration: int):
+    minutes, seconds = divmod(duration, 60)
+    hours, minutes = divmod(minutes, 60)
+    days, hours = divmod(hours, 24)
+
+    duration = []
+    if days > 0:
+        duration.append('{} days'.format(days))
+    if hours > 0:
+        duration.append('{} hours'.format(hours))
+    if minutes > 0:
+        duration.append('{} minutes'.format(minutes))
+    if seconds > 0:
+        duration.append('{} seconds'.format(seconds))
+
+    return ', '.join(duration)
+
 
 bot.run(TOKEN)
