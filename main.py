@@ -3,7 +3,7 @@ from functools import partial
 from pprint import pprint
 from queue import Queue
 import random
-
+import re
 import discord
 import dotenv
 import os
@@ -50,12 +50,16 @@ ffmpegopts = {
 ytdl = YoutubeDL(ytdlopts)
 
 QUEUE = Queue(maxsize=0)
+CP = {"Playing": None}  # Current playing song
+
+url_rx = re.compile('https?:\\/\\/(?:www\\.)?.+')  # https://regex101.com/r/4Q5Z5C/1
+
+
 ##########################
 
 
 @bot.event
 async def on_ready():
-    global QUEUE
     print(f"We have logged in as {bot.user}")
 
 
@@ -96,14 +100,15 @@ async def join(ctx):
 
 @bot.slash_command()
 async def play(ctx, url: str):
-    # get song title from url
-    song_data = ytdl.extract_info(url, download=False)
-    if song_data is None:
-        await ctx.respond("Invalid URL")
-        return
-    if ctx.voice_client is None:
-        await join(ctx)
-    await __queueManager(ctx, url)
+    if url_rx.match(url):
+        if "youtube" in url:
+            song_data = ytdl.extract_info(url, download=False)
+            if song_data is None:
+                await ctx.respond("Invalid URL")
+                return
+            if ctx.voice_client is None:
+                await join(ctx)
+            await __queueManager(ctx, url)
 
 
 @bot.slash_command()
@@ -168,11 +173,7 @@ async def viewQueue(ctx):
 @bot.slash_command(name="skip", description="Skip the current song")
 async def skip(ctx):
     global QUEUE
-    try:
-        ctx.voice_client.stop()
-        await ctx.respond("Skipped")
-    except AttributeError:
-        await ctx.respond("I am not connected to a voice channel")
+    await ctx.respond("Not Implemented")
 
 
 @bot.slash_command(name="clear", description="Clear the queue")
@@ -205,7 +206,28 @@ async def shuffle(ctx):
     await ctx.respond("Shuffled the queue")
 
 
-@bot.slash_command(name="add", description="Recursively add songs to the queue from a playlist") # Not complete!
+@bot.slash_command(name="nowplaying", description="Query the song playing")
+async def nowplaying(ctx):
+    global CP
+    embed = discord.Embed(title="Now Playing", description=f"Currently playing {CP['title']}",
+                          color=0xeee657)
+    try:
+        embed.add_field(name="Album", value=f"{CP['album']}", inline=False)
+    except KeyError:
+        embed.add_field(name="Album", value="Unknown", inline=False)
+    try:
+        embed.add_field(name="Artists", value=f"{CP['artists']}", inline=False)
+    except KeyError:
+        embed.add_field(name="Artists", value="Unknown", inline=False)
+    embed.add_field(name="Duration", value=f"{CP['duration']}", inline=False)
+    embed.add_field(name="Views", value=f"{CP['view_count']}", inline=False)
+    embed.add_field(name="URL", value=f"{CP['webpage_url']}", inline=False)
+    embed.add_field(name="Upload Date", value=f"{CP['upload_date']}", inline=False)
+    embed.set_thumbnail(url=CP['thumbnail'])
+    await ctx.respond(embed=embed)
+
+
+@bot.slash_command(name="add", description="Recursively add songs to the queue from a playlist")  # Not complete!
 async def recursiveAdd(ctx, url: str):
     global QUEUE
     await ctx.respond(f"Adding songs from {url} to the queue.")
@@ -239,21 +261,25 @@ async def recursiveAdd(ctx, url: str):
 
 
 async def process_audio(ctx, url):
+    """Raw audio wrapper
+    ctx: context
+    url: url of the song (Direct link to the song)"""
     global QUEUE
+    print("Told to play \n"+url)
     try:
         if ctx.voice_client is None:
-            await ctx.author.voice.channel.join()
-        # open youtube video and get the stream url
-        with ytdl:
-            song_info = ytdl.extract_info(url, download=False)
-        await ctx.voice_client.play(discord.FFmpegPCMAudio(song_info['formats'][0]['url']), after=partial(_handle_error,
-                                                                                                          ctx))
+            try:
+                await ctx.author.voice.channel.join()
+            except TypeError:
+                pass
+        await ctx.voice_client.play(discord.FFmpegPCMAudio(url), after=lambda e: partial(_handle_error, ctx, e))
     except discord.ClientException:
         return False
 
 
 async def __queueManager(ctx, song_data=None):
     global QUEUE
+    global CP
     if song_data is not None:
         with ytdl:
             song_info = ytdl.extract_info(song_data, download=False)
@@ -269,16 +295,26 @@ async def __queueManager(ctx, song_data=None):
         elif not QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
             song = QUEUE.get()
             with ytdl:
-                song = ytdl.extract_info(song, download=False)
-            await ctx.respond(f"Now playing {song['title']}")
-            await process_audio(ctx, song['formats'][0]['url'])
+                CP = ytdl.extract_info(song, download=False)
+            await ctx.respond(f"Now playing {CP['title']}")
+            await process_audio(ctx, CP['formats'][0]['url'])
         elif QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
             await ctx.respond("The queue is empty")
             await leave(ctx)
 
 
 def _handle_error(ctx, error):
+    try:
+        print(ctx, error)
+    except AttributeError:
+        print(ctx)
     asyncio.run_coroutine_threadsafe(__queueManager(ctx, None), bot.loop)
+
+
+# Loop every 1 second to check what the progress of music is
+@tasks.loop(seconds=1)
+async def progress():
+    global CP
 
 
 bot.run(TOKEN)
