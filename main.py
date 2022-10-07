@@ -39,11 +39,14 @@ ytdlopts = {
     'quiet': True,
     'no_warnings': True,
     'default_search': 'auto',
-    'source_address': '0.0.0.0'  # ipv6 addresses cause issues sometimes
+    'source_address': '0.0.0.0',  # ipv6 addresses cause issues sometimes
+    'reconnect': 1,
+    'reconnect_streamed': 1,
+    'reconnect_delay_max': 5
 }
 
 ffmpegopts = {
-    'before_options': '-nostdin',
+    'before_options': '-nostdin -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
     'options': '-vn'
 }
 
@@ -84,21 +87,18 @@ async def ping(ctx):
     await ctx.respond(f"Pong! {round(bot.latency * 1000)}ms")
 
 
-@bot.slash_command()
+@bot.slash_command(name="join", description="Joins the voice channel you are currently in.")
 async def join(ctx):
+    """Joins the voice channel you are currently in."""
+    if ctx.voice_client is not None:
+        return await ctx.respond("I am already in a voice channel")
     if ctx.author.voice is None:
-        await ctx.respond("You are not connected to a voice channel")
-        return
-    else:
-        channel = ctx.author.voice.channel
-    try:
-        await channel.connect()
-        await ctx.respond(f"Connected to {channel}")
-    except discord.ClientException:
-        await ctx.respond("I am already connected to a voice channel")
+        return await ctx.respond("You are not in a voice channel")
+    await ctx.author.voice.channel.connect()
+    await ctx.respond(f"Joined {ctx.author.voice.channel}")
 
 
-@bot.slash_command()
+@bot.slash_command(name="play", description="Plays a song from a youtube link or a search query.")
 async def play(ctx, url: str):
     if url_rx.match(url):
         if "youtube" in url:
@@ -107,8 +107,21 @@ async def play(ctx, url: str):
                 await ctx.respond("Invalid URL")
                 return
             if ctx.voice_client is None:
-                await join(ctx)
+                await ctx.author.voice.channel.join()
             await __queueManager(ctx, url)
+    else:
+        results = sp.search(q=url, limit=1)
+        if results['tracks']['total'] == 0:
+            await ctx.respond("No results found")
+            return
+        song_data = results['tracks']['items'][0]
+        # search Youtubedl for the song
+        song_data = ytdl.extract_info(f"ytsearch:{song_data['name']} by {song_data['artists'][0]['name']}. Music",
+                                      download=False)
+        if ctx.voice_client is None:
+            await ctx.author.voice.channel.connect()
+        print("Found: "+song_data['entries'][0]['webpage_url'])
+        await __queueManager(ctx, song_data['entries'][0]['webpage_url'])
 
 
 @bot.slash_command()
@@ -120,7 +133,7 @@ async def leave(ctx):
         await ctx.respond("I am not connected to a voice channel")
 
 
-@bot.slash_command()
+@bot.slash_command(name="pause", description="Pauses the current song.", aliases=["continue", "p"])
 async def pause(ctx):
     try:
         if ctx.voice_client.is_playing():
@@ -138,30 +151,17 @@ async def pause(ctx):
         await ctx.respond("I am not connected to a voice channel")
 
 
-@bot.slash_command()
-async def resume(ctx):
-    await pause(ctx)
-
-
-@bot.slash_command(name="search", description="Search for a song")
-async def search(ctx, query: str):
-    global QUEUE
-    await ctx.respond(f"Searching for {query}.")
-    # Use spotify's API to search for a song
-    results = sp.search(q=query, limit=1)
-    for idx, track in enumerate(results['tracks']['items']):
-        term = f"{track['name']} by {track['artists'][0]['name']}"
-        # Get the url of the song from YouTube
-        url = YoutubeDL(ytdlopts).extract_info(f"ytsearch:{term}", download=False)['entries'][0]['webpage_url']
-        # pprint(song_info)
-        # holy fuck that's a lot of info
-        await play(ctx, url)
-
-
 @bot.slash_command(name="queue", description="Show the queue")
 async def viewQueue(ctx):
     global QUEUE
+    global CP
     embed = discord.Embed(title="Queue", description="List of songs in the queue", color=0xeee657)
+    try:
+        embed.add_field(name=f"0. {CP['title']}", value=f"Duration: {CP['duration']}",
+                        inline=False)
+    except KeyError:
+        await ctx.respond("The queue is empty")
+        return
     for index, song in zip(range(50), QUEUE.queue):
         with ytdl:
             song_info = ytdl.extract_info(song, download=False)
@@ -229,35 +229,13 @@ async def nowplaying(ctx):
 
 @bot.slash_command(name="add", description="Recursively add songs to the queue from a playlist")  # Not complete!
 async def recursiveAdd(ctx, url: str):
+    await ctx.respond("Not Implemented")
+
+
+@bot.application_command(name="devqueue", description="PRINT QUEUE TO STDOUT")
+async def printQueue(ctx):
     global QUEUE
-    await ctx.respond(f"Adding songs from {url} to the queue.")
-    # if bot not in voice channel, join
-    if ctx.voice_client is None:
-        await join(ctx)
-    if url.__contains__("youtube.com/playlist?list="):
-        with ytdl:
-            result = ytdl.extract_info(url, download=False)  # We just want to extract the info
-            if 'entries' in result:
-                # Can be a playlist or a list of videos
-                video = result['entries']
-                # loops entries to grab each video_url
-                async for i, item in video:
-                    video = result['entries'][i]
-                    await search(ctx, video['title'])
-    elif url.__contains__("spotify.com/playlist/"):
-        # use spotify's API to get the playlist
-        playlist = sp.playlist(url)
-        # loop through each song in the playlist
-        print(len(playlist['tracks']['items']))
-        for x in range(len(playlist['tracks']['items'])):
-            song = playlist['tracks']['items'][x]
-            print(song['track']['name'])
-            # get the song's name and artist
-            term = f"{song['track']['name']} by {song['track']['artists'][0]['name']}"
-            # get the url of the song from YouTube
-            url = YoutubeDL(ytdlopts).extract_info(f"ytsearch:{term}", download=False)['entries'][0]['webpage_url']
-            # add the song to the queue
-            QUEUE.put(url)
+    print(QUEUE.queue)
 
 
 async def process_audio(ctx, url):
@@ -272,7 +250,9 @@ async def process_audio(ctx, url):
                 await ctx.author.voice.channel.join()
             except TypeError:
                 pass
-        await ctx.voice_client.play(discord.FFmpegPCMAudio(url), after=lambda e: partial(_handle_error, ctx, e))
+        await ctx.voice_client.play(discord.FFmpegPCMAudio(url, before_options=ffmpegopts['before_options'],
+                                    options=ffmpegopts['options']),
+                                    after=lambda e: partial(_handle_error, ctx, e))
     except discord.ClientException:
         return False
 
@@ -280,27 +260,37 @@ async def process_audio(ctx, url):
 async def __queueManager(ctx, song_data=None):
     global QUEUE
     global CP
-    if song_data is not None:
+    if song_data is not None: # Chill it's for song name
         with ytdl:
             song_info = ytdl.extract_info(song_data, download=False)
     print(ctx.voice_client.is_paused(), ctx.voice_client.is_playing())
     if not ctx.voice_client.is_paused():
         if QUEUE.empty() and song_data is not None:
             QUEUE.put(song_data)
-            await ctx.respond(f"Added {song_info['title']} to the queue")
-            await __queueManager(ctx, None)
+            await ctx.channel.send(f"Added {song_info['title']} to the queue")
+            ######################
+            if not QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
+                song = QUEUE.get()
+                with ytdl:
+                    CP = ytdl.extract_info(song, download=False)
+                await ctx.channel.send(f"Now playing {CP['title']}")
+                await process_audio(ctx, CP['formats'][0]['url'])
+            return
         elif not QUEUE.empty() and song_data is not None:
             QUEUE.put(song_data)
-            await ctx.respond(f"Added {song_info['title']} to the queue at position {QUEUE.qsize()}")
+            await ctx.channel.send(f"Added {song_info['title']} to the queue at position {QUEUE.qsize()}")
+            return
         elif not QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
             song = QUEUE.get()
             with ytdl:
                 CP = ytdl.extract_info(song, download=False)
-            await ctx.respond(f"Now playing {CP['title']}")
+            await ctx.channel.send(f"Now playing {CP['title']}")
             await process_audio(ctx, CP['formats'][0]['url'])
+            return
         elif QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
-            await ctx.respond("The queue is empty")
+            await ctx.channel.send("The queue is empty")
             await leave(ctx)
+            return
 
 
 def _handle_error(ctx, error):
@@ -315,6 +305,7 @@ def _handle_error(ctx, error):
 @tasks.loop(seconds=1)
 async def progress():
     global CP
-
+    if CP is not None:
+        print(f"{CP['title']} is {CP['duration']}")
 
 bot.run(TOKEN)
