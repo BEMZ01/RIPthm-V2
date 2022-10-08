@@ -13,7 +13,10 @@ from discord.ext import tasks, commands
 import logging
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
-from youtube_dl import YoutubeDL
+from yt_dlp import YoutubeDL
+from threading import Thread
+from colorthief import ColorThief
+import urllib.request
 
 # Discord bot to play music in voice channels
 logging.basicConfig(level=logging.INFO)
@@ -31,8 +34,10 @@ sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLI
 # The Current Playing holds Specific YT video info
 # This program is a mess
 # I'm sorry
+#https://www.youtube.com/playlist?list=PLrAJUJfWhRegflDEnh5xUvV4OXlDSy2fI
 ##########################
 ######### GLOBAL #########
+HEX = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F"]
 ytdlopts = {
     'format': 'bestaudio[ext!=webm]',
     'outtmpl': 'downloads/%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -40,14 +45,36 @@ ytdlopts = {
     'noplaylist': True,
     'nocheckcertificate': True,
     'ignoreerrors': False,
-    'logtostderr': False,
-    'quiet': True,
+    'logtostderr': True,
+    'quiet': False,
+    'no_warnings': True,
+    'default_search': 'auto',
+    'source_address': '0.0.0.0',  # ipv6 addresses cause issues sometimes
+    'reconnect': 1,
+    'reconnect_streamed': 1,
+    'reconnect_delay_max': 5,
+    'extract_flat': True,
+    'skip_download': True
+}
+ytdlopts_music = {
+    'format': 'bestaudio[ext!=webm]',
+    'outtmpl': 'downloads/%(extractor)s-%(id)s-%(title)s.%(ext)s',
+    'restrictfilenames': True,
+    'noplaylist': True,
+    'nocheckcertificate': True,
+    'ignoreerrors': False,
+    'logtostderr': True,
+    'quiet': False,
     'no_warnings': True,
     'default_search': 'auto',
     'source_address': '0.0.0.0',  # ipv6 addresses cause issues sometimes
     'reconnect': 1,
     'reconnect_streamed': 1,
     'reconnect_delay_max': 5
+}
+ytdlopts_slim = {
+    'extract_flat': True,
+    'skip_download': True
 }
 
 ffmpegopts = {
@@ -56,6 +83,8 @@ ffmpegopts = {
 }
 
 ytdl = YoutubeDL(ytdlopts)
+ytdl_music = YoutubeDL(ytdlopts_music)
+ytdl_slim = YoutubeDL(ytdlopts_slim)
 
 QUEUE = Queue(maxsize=0)
 CP = {"Playing": None}  # Current playing song
@@ -107,13 +136,20 @@ async def join(ctx):
 async def play(ctx, url: str):
     with ctx.typing():
         if url_rx.match(url):
-            if "youtube" in url:
-                song_data = ytdl.extract_info(url, download=False)
-                if song_data is None:
-                    await ctx.respond("Invalid URL")
-                if ctx.voice_client is None:
-                    await ctx.author.voice.channel.connect()
-                await __queueManager(ctx, url)
+            if "spotify" in url:
+                song_data = sp.track(url)
+                # search for song on youtube
+                song_data = ytdl_music.extract_info(f"ytsearch:{song_data['name']} by {song_data['artists'][0]['name']}. Lyrics",
+                                                    download=False)
+                url = song_data['entries'][0]['webpage_url']
+            elif "youtube" in url:
+                with ytdl_music:
+                    song_data = ytdl_music.extract_info(url, download=False)
+                    url = song_data['webpage_url']
+            else:
+                await ctx.respond("Invalid URL")
+            print("Attempt to play: " + url)
+            await __queueManager(ctx, url)
         else:
             results = sp.search(q=url, limit=1)
             try:
@@ -122,12 +158,10 @@ async def play(ctx, url: str):
                 await ctx.respond("No results found")
                 pass
             # search Youtubedl for the song
-            song_data = ytdl.extract_info(f"ytsearch:{song_data['name']} by {song_data['artists'][0]['name']}. Music",
+            song_data = ytdl.extract_info(f"ytsearch:{song_data['name']} by {song_data['artists'][0]['name']}. Lyrics",
                                           download=False)
-            if ctx.voice_client is None:
-                await ctx.author.voice.channel.connect()
-            print("Found: " + song_data['entries'][0]['webpage_url'])
-            await __queueManager(ctx, song_data['entries'][0]['webpage_url'])
+            print("Found: " + song_data['entries'][0]['url'])
+            await __queueManager(ctx, song_data['entries'][0]['url'])
 
 
 @bot.slash_command()
@@ -159,27 +193,36 @@ async def pause(ctx):
 
 @bot.slash_command(name="queue", description="Show the queue")
 async def viewQueue(ctx):
+    await ctx.defer()
     global QUEUE
     global CP
-    embed = discord.Embed(title="Queue", description="List of songs in the queue", color=0xeee657)
     try:
-        embed.add_field(name=f"0. {CP['title']}", value=f"Duration: {parse_duration(CP['duration'])}",
-                        inline=False)
-    except KeyError:
-        await ctx.respond("The queue is empty")
-    for index, song in zip(range(50), QUEUE.queue):
-        with ytdl:
-            song_info = ytdl.extract_info(song, download=False)
-        embed.add_field(name=f"{index + 1}. {song_info['title']}",
-                        value=f"Duration: {parse_duration(song_info['duration'])}",
-                        inline=False)
-    await ctx.respond(embed=embed)
+        embed = discord.Embed(title="Queue", description="List of the next 10 songs in the queue.", color=0xeee657)
+        try:
+            embed.add_field(name=f"CP. {CP['title']}", value=f"Duration: {parse_duration(CP['duration'])}",
+                            inline=False)
+        except KeyError:
+            await ctx.respond("The queue is empty")
+        for index, song in zip(range(10), QUEUE.queue):
+            with ytdl_slim:
+                song_info = ytdl_slim.extract_info(song, download=False)
+            embed.add_field(name=f"{index + 1}. {song_info['title']}",
+                            value=f"Duration: {parse_duration(song_info['duration'])}",
+                            inline=False)
+        await ctx.respond(embed=embed)
+    except RuntimeError:
+        await ctx.respond("The queue is currently being modified, please try again later.")
 
 
 @bot.slash_command(name="skip", description="Skip the current song")
 async def skip(ctx):
     global QUEUE
-    await ctx.respond("Not Implemented")
+    global CP
+    if QUEUE.empty():
+        await ctx.respond("The queue is empty")
+    else:
+        ctx.voice_client.stop()
+        await ctx.respond("Skipped")
 
 
 @bot.slash_command(name="clear", description="Clear the queue")
@@ -189,7 +232,7 @@ async def clear(ctx):
     await ctx.respond("Cleared the queue")
 
 
-@bot.slash_command(name="stop", description="Stop the music")
+@bot.slash_command(name="stop", description="Stop the music and clear the queue.")
 async def stop(ctx):
     global QUEUE
     QUEUE.queue.clear()
@@ -216,7 +259,7 @@ async def shuffle(ctx):
 async def nowplaying(ctx):
     global CP
     embed = discord.Embed(title="Now Playing", description=f"Currently playing {CP['title']}",
-                          color=0xeee657)
+                          color=GetEmbedColor(CP['thumbnail']))
     try:
         embed.add_field(name="Album", value=f"{CP['album']}", inline=False)
     except KeyError:
@@ -235,7 +278,21 @@ async def nowplaying(ctx):
 
 @bot.slash_command(name="add", description="Recursively add songs to the queue from a playlist")  # Not complete!
 async def recursiveAdd(ctx, url: str):
-    await ctx.respond("Not Implemented")
+    await ctx.defer()
+    try:
+        with ctx.typing():
+            if url_rx.match(url):
+                if "youtube" in url:
+                    t = Thread(target=__PlaylistThread, args=(ctx, url, True))
+                elif "spotify" in url:
+                    t = Thread(target=__PlaylistThread, args=(ctx, url, False))
+                t.start()
+                await asyncio.sleep(5)
+                await __queueManager(ctx)
+            else:
+                await ctx.respond("Invalid URL")
+    except RuntimeError:
+        await ctx.respond("The queue is currently being modified, please try again later.")
 
 
 @bot.application_command(name="devqueue", description="PRINT QUEUE TO STDOUT")
@@ -271,6 +328,8 @@ async def process_audio(ctx, url):
 async def __queueManager(ctx, song_data=None):
     global QUEUE
     global CP
+    if ctx.voice_client is None:
+        await ctx.author.voice.channel.connect()
     if song_data is not None:  # Chill it's for song name
         with ytdl:
             song_info = ytdl.extract_info(song_data, download=False)
@@ -282,35 +341,45 @@ async def __queueManager(ctx, song_data=None):
             ######################
             if not QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
                 song = QUEUE.get()
-                with ytdl:
+                with ytdl_music:
                     CP = ytdl.extract_info(song, download=False)
                 await ctx.channel.send(f"Now playing {CP['title']}")
-                await process_audio(ctx, CP['formats'][0]['url'])
+                await process_audio(ctx, CP['url'])
         elif not QUEUE.empty() and song_data is not None:
             QUEUE.put(song_data)
             await ctx.channel.send(f"Added {song_info['title']} to the queue at position {QUEUE.qsize()}")
         elif not QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
             # OMG it's the actual bot requesting more music better give it some
             song = QUEUE.get()
-            with ytdl:
+            with ytdl_music:
                 CP = ytdl.extract_info(song, download=False)
             await ctx.channel.send(f"Now playing {CP['title']}")
-            await process_audio(ctx, CP['formats'][0]['url'])
+            #pprint(CP)
+            await process_audio(ctx, CP['url'])
         elif QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
             await ctx.channel.send("The queue is empty")
             await leave(ctx)
 
 
-#def _handle_error(ctx, error):
-
-
-
-# Loop every 1 second to check what the progress of music is
-@tasks.loop(seconds=1)
-async def progress():
-    global CP
-    if CP is not None:
-        print(f"{CP['title']} is {CP['duration']}")
+def __PlaylistThread(ctx, playlist_url, YT):
+    """Inner thread subroutine to add songs to playlist"""
+    global QUEUE
+    if YT:
+        # playlist is YT
+        with ytdl_slim:
+            playlist = ytdl_slim.extract_info(playlist_url, download=False)
+            for song in playlist['entries']:
+                QUEUE.put("https://www.youtube.com/watch?v=" + str(song['id']))
+    else:
+        # playlist is Spotify
+        playlist = sp.playlist(playlist_url)
+        for song in playlist['tracks']['items']:
+            song_data = ytdl_slim.extract_info(f"ytsearch:{song['track']['name']} by {song['track']['artists'][0]['name']}. Lyrics",
+                                               download=False)
+            if ctx.voice_client is None:
+                asyncio.run_coroutine_threadsafe(ctx.author.voice.channel.connect(), bot.loop)
+            print("Found: " + song_data['entries'][0]['url'])
+            QUEUE.put(song_data['entries'][0]['url'])
 
 
 def parse_duration(duration: int):
@@ -329,6 +398,16 @@ def parse_duration(duration: int):
         duration.append('{} seconds'.format(seconds))
 
     return ', '.join(duration)
+
+
+def GetEmbedColor(thumbnail_url):
+    # make sure the format matches remote image
+    print(thumbnail_url.split(".")[-1])
+    urllib.request.urlretrieve(thumbnail_url, "temp/thumb."+str(thumbnail_url.split(".")[-1]))
+    color_thief = ColorThief("temp/thumb."+str(thumbnail_url.split(".")[-1]))
+    dominant_color = color_thief.get_color(quality=1)
+    os.remove("temp/thumb."+str(thumbnail_url.split(".")[-1]))
+    return int('0x{:X}{:X}{:X}'.format(dominant_color[0], dominant_color[1], dominant_color[2]), 16)
 
 
 bot.run(TOKEN)
