@@ -1,15 +1,10 @@
 import asyncio
-from functools import partial
-from pprint import pprint
 from queue import Queue
 import random
 import re
 import discord
 import dotenv
 import os
-import sys
-import traceback
-from discord.ext import tasks, commands
 import logging
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
@@ -34,7 +29,7 @@ sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLI
 # The Current Playing holds Specific YT video info
 # This program is a mess
 # I'm sorry
-#https://www.youtube.com/playlist?list=PLrAJUJfWhRegflDEnh5xUvV4OXlDSy2fI
+# https://www.youtube.com/playlist?list=PLrAJUJfWhRegflDEnh5xUvV4OXlDSy2fI
 ##########################
 ######### GLOBAL #########
 HEX = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F"]
@@ -139,8 +134,9 @@ async def play(ctx, url: str):
             if "spotify" in url:
                 song_data = sp.track(url)
                 # search for song on youtube
-                song_data = ytdl_music.extract_info(f"ytsearch:{song_data['name']} by {song_data['artists'][0]['name']}. Lyrics",
-                                                    download=False)
+                song_data = ytdl_music.extract_info(
+                    f"ytsearch:{song_data['name']} by {song_data['artists'][0]['name']}. YouTube Music",
+                    download=False)
                 url = song_data['entries'][0]['webpage_url']
             elif "youtube" in url:
                 with ytdl_music:
@@ -158,8 +154,9 @@ async def play(ctx, url: str):
                 await ctx.respond("No results found")
                 pass
             # search Youtubedl for the song
-            song_data = ytdl.extract_info(f"ytsearch:{song_data['name']} by {song_data['artists'][0]['name']}. Lyrics",
-                                          download=False)
+            song_data = ytdl.extract_info(
+                f"ytsearch:{song_data['name']} by {song_data['artists'][0]['name']}. YouTube Music",
+                download=False)
             print("Found: " + song_data['entries'][0]['url'])
             await __queueManager(ctx, song_data['entries'][0]['url'])
 
@@ -271,7 +268,7 @@ async def nowplaying(ctx):
     embed.add_field(name="Duration", value=f"{parse_duration(CP['duration'])}", inline=False)
     embed.add_field(name="Views", value=f"{CP['view_count']}", inline=False)
     embed.add_field(name="URL", value=f"{CP['webpage_url']}", inline=False)
-    embed.add_field(name="Upload Date", value=f"{CP['upload_date']}", inline=False)
+    embed.add_field(name="Upload Date", value=f"{parse_date(CP['upload_date'])}", inline=False)
     embed.set_thumbnail(url=CP['thumbnail'])
     await ctx.respond(embed=embed)
 
@@ -295,12 +292,6 @@ async def recursiveAdd(ctx, url: str):
         await ctx.respond("The queue is currently being modified, please try again later.")
 
 
-@bot.application_command(name="devqueue", description="PRINT QUEUE TO STDOUT")
-async def printQueue(ctx):
-    global QUEUE
-    print(QUEUE.queue)
-
-
 async def process_audio(ctx, url):
     """Raw audio wrapper
     ctx: context
@@ -316,9 +307,9 @@ async def process_audio(ctx, url):
         print(ffmpegopts['before_options'], ffmpegopts['options'], url)
         try:
             ctx.voice_client.play(discord.FFmpegPCMAudio(url, before_options=ffmpegopts['before_options'],
-                                                               options=ffmpegopts['options']),
-                                        after=lambda o: asyncio.run_coroutine_threadsafe(__queueManager
-                                                                                         (ctx, None), bot.loop))
+                                                         options=ffmpegopts['options']),
+                                  after=lambda o: asyncio.run_coroutine_threadsafe(__queueManager
+                                                                                   (ctx, None), bot.loop))
         except discord.errors.ApplicationCommandInvokeError as e:
             await ctx.channel.send("Something went wrong " + str(e))
     except discord.ClientException:
@@ -354,7 +345,7 @@ async def __queueManager(ctx, song_data=None):
             with ytdl_music:
                 CP = ytdl.extract_info(song, download=False)
             await ctx.channel.send(f"Now playing {CP['title']}")
-            #pprint(CP)
+            # pprint(CP)
             await process_audio(ctx, CP['url'])
         elif QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
             await ctx.channel.send("The queue is empty")
@@ -374,8 +365,9 @@ def __PlaylistThread(ctx, playlist_url, YT):
         # playlist is Spotify
         playlist = sp.playlist(playlist_url)
         for song in playlist['tracks']['items']:
-            song_data = ytdl_slim.extract_info(f"ytsearch:{song['track']['name']} by {song['track']['artists'][0]['name']}. Lyrics",
-                                               download=False)
+            song_data = ytdl_slim.extract_info(
+                f"ytsearch:{song['track']['name']} by {song['track']['artists'][0]['name']}. YouTube Music",
+                download=False)
             if ctx.voice_client is None:
                 asyncio.run_coroutine_threadsafe(ctx.author.voice.channel.connect(), bot.loop)
             print("Found: " + song_data['entries'][0]['url'])
@@ -403,11 +395,22 @@ def parse_duration(duration: int):
 def GetEmbedColor(thumbnail_url):
     # make sure the format matches remote image
     print(thumbnail_url.split(".")[-1])
-    urllib.request.urlretrieve(thumbnail_url, "temp/thumb."+str(thumbnail_url.split(".")[-1]))
-    color_thief = ColorThief("temp/thumb."+str(thumbnail_url.split(".")[-1]))
+    t = Thread(target=__ThreaddedDownload, args=(thumbnail_url, "temp/thumb." + str(thumbnail_url.split(".")[-1])))
+    t.start()
+    t.join()
+    color_thief = ColorThief("temp/thumb." + str(thumbnail_url.split(".")[-1]))
     dominant_color = color_thief.get_color(quality=1)
-    os.remove("temp/thumb."+str(thumbnail_url.split(".")[-1]))
+    os.remove("temp/thumb." + str(thumbnail_url.split(".")[-1]))
     return int('0x{:X}{:X}{:X}'.format(dominant_color[0], dominant_color[1], dominant_color[2]), 16)
+
+
+def __ThreaddedDownload(thumbnail_url, loc):
+    urllib.request.urlretrieve(thumbnail_url, loc)
+
+
+def parse_date(date: str):
+    """Takes a date in YYYYMMDD format and inserts slashes to make DD/MM/YYYY"""
+    return f"{date[6:]}/{date[4:6]}/{date[:4]}"
 
 
 bot.run(TOKEN)
