@@ -4,7 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="Added Loop feature" />
+    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="+ requirements.txt">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -79,6 +82,7 @@
       <workItem from="1665133744506" duration="24777000" />
       <workItem from="1665221391844" duration="8114000" />
       <workItem from="1665266800484" duration="9291000" />
+      <workItem from="1665310333179" duration="7361000" />
     </task>
     <task id="LOCAL-00001" summary="Added code">
       <created>1665138238842</created>
@@ -136,7 +140,14 @@
       <option name="project" value="LOCAL" />
       <updated>1665278089474</updated>
     </task>
-    <option name="localTasksCounter" value="9" />
+    <task id="LOCAL-00009" summary="+ requirements.txt">
+      <created>1665310520098</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1665310520098</updated>
+    </task>
+    <option name="localTasksCounter" value="10" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -162,9 +173,10 @@
     <MESSAGE value="Pase date from YYYYMMDD to the nicer to look at DD/MM/YYYY" />
     <MESSAGE value="Done some cool-things" />
     <MESSAGE value="Added Loop feature" />
-    <option name="LAST_COMMIT_MESSAGE" value="Added Loop feature" />
+    <MESSAGE value="+ requirements.txt" />
+    <option name="LAST_COMMIT_MESSAGE" value="+ requirements.txt" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/RIPthm_V2$main.coverage" NAME="main Coverage Results" MODIFIED="1665278076904" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/RIPthm_V2$main.coverage" NAME="main Coverage Results" MODIFIED="1665323941380" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>
