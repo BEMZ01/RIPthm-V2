@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="Pase date from YYYYMMDD to the nicer to look at DD/MM/YYYY">
+    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="Done some cool-things">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
     </list>
@@ -81,7 +81,7 @@
       <workItem from="1665091337192" duration="13807000" />
       <workItem from="1665133744506" duration="24777000" />
       <workItem from="1665221391844" duration="8114000" />
-      <workItem from="1665266800484" duration="1525000" />
+      <workItem from="1665266800484" duration="9237000" />
     </task>
     <task id="LOCAL-00001" summary="Added code">
       <created>1665138238842</created>
@@ -125,7 +125,14 @@
       <option name="project" value="LOCAL" />
       <updated>1665189224319</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="Done some cool-things">
+      <created>1665268561581</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1665268561581</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -149,9 +156,10 @@
     <MESSAGE value="Managed to unbreak The queue :)" />
     <MESSAGE value="Yippe! Added External Playlist Q'ing" />
     <MESSAGE value="Pase date from YYYYMMDD to the nicer to look at DD/MM/YYYY" />
-    <option name="LAST_COMMIT_MESSAGE" value="Pase date from YYYYMMDD to the nicer to look at DD/MM/YYYY" />
+    <MESSAGE value="Done some cool-things" />
+    <option name="LAST_COMMIT_MESSAGE" value="Done some cool-things" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/RIPthm_V2$main.coverage" NAME="main Coverage Results" MODIFIED="1665267476078" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/RIPthm_V2$main.coverage" NAME="main Coverage Results" MODIFIED="1665278076904" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

@@ -12,6 +12,7 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from yt_dlp import YoutubeDL
 from threading import Thread
 from colorthief import ColorThief
+from discord.commands import Option
 import urllib.request
 
 # Discord bot to play music in voice channels
@@ -34,6 +35,7 @@ sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLI
 ##########################
 ######### GLOBAL #########
 HEX = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F"]
+LOOP = 0
 ytdlopts = {
     'format': 'bestaudio[ext!=webm]',
     'outtmpl': 'downloads/%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -83,7 +85,8 @@ ytdl_music = YoutubeDL(ytdlopts_music)
 ytdl_slim = YoutubeDL(ytdlopts_slim)
 
 QUEUE = Queue(maxsize=0)
-CP = {"Playing": None}  # Current playing song
+CP = {"Playing": None}
+Played_songs = []
 
 url_rx = re.compile('https?:\\/\\/(?:www\\.)?.+')  # https://regex101.com/r/4Q5Z5C/1
 
@@ -130,6 +133,8 @@ async def join(ctx):
 
 @bot.slash_command(name="play", description="Plays a song from a youtube link or a search query.")
 async def play(ctx, url: str):
+    await ctx.defer()
+    await ctx.respond(":white_check_mark:", delete_after=5)
     with ctx.typing():
         if url_rx.match(url):
             if "spotify" in url:
@@ -145,6 +150,7 @@ async def play(ctx, url: str):
                     url = song_data['webpage_url']
             else:
                 await ctx.respond("Invalid URL", delete_after=5)
+                pass
             print("Attempt to play: " + url)
             await __queueManager(ctx, url)
         else:
@@ -222,7 +228,9 @@ async def skip(ctx):
         if QUEUE.empty():
             await ctx.respond("The queue is empty", delete_after=5)
         else:
-            CP = QUEUE.get()
+            # add the song to the history
+            if LOOP == 2:
+                Played_songs.append(f"{CP['title']} by {CP['uploader']}. YouTube Music")
             ctx.voice_client.stop()
             await ctx.respond("Skipped", delete_after=5)
     except RuntimeError:
@@ -232,14 +240,18 @@ async def skip(ctx):
 @bot.slash_command(name="clear", description="Clear the queue")
 async def clear(ctx):
     global QUEUE
+    global Played_songs
     QUEUE.queue.clear()
+    Played_songs = []
     await ctx.respond("Cleared the queue", delete_after=5)
 
 
 @bot.slash_command(name="stop", description="Stop the music and clear the queue.")
 async def stop(ctx):
     global QUEUE
+    global Played_songs
     QUEUE.queue.clear()
+    Played_songs = []
     try:
         ctx.voice_client.stop()
         await ctx.respond("Stopped", delete_after=5)
@@ -258,7 +270,7 @@ async def shuffle(ctx):
     await ctx.respond("Shuffled the queue", delete_after=5)
 
 
-@bot.slash_command(name="nowplaying", description="Query the song playing")
+@bot.slash_command(name="nowplaying", description="Query the song playing", aliases=["np", "info", "song"])
 async def nowplaying(ctx):
     global CP
     embed = discord.Embed(title="Now Playing", description=f"Currently playing {CP['title']}",
@@ -298,6 +310,38 @@ async def recursiveAdd(ctx, url: str):
         await ctx.respond("The queue is currently being modified, please try again later.", delete_after=5)
 
 
+@bot.slash_command(name="loop", description="Toggle the loop state")
+async def loop(ctx, state: Option(str, "Optional. Either off, song or queue.", required=False, default=None)):
+    """Toggle loop state between off, song and queue"""
+    global LOOP
+    global Played_songs
+    if state:
+        if state.lower() == "off":
+            LOOP = 0
+            await ctx.respond("Looping disabled", delete_after=5)
+        elif state.lower() == "song":
+            LOOP = 1
+            await ctx.respond("Looping song", delete_after=5)
+        elif state.lower() == "queue":
+            LOOP = 2
+            Played_songs = []
+            await ctx.respond("Looping queue", delete_after=5)
+        else:
+            await ctx.respond("Invalid state", delete_after=5)
+    else:
+        if LOOP == 0:
+            LOOP = 1
+            await ctx.respond("Looping song", delete_after=5)
+        elif LOOP == 1:
+            LOOP = 2
+            Played_songs = []
+            await ctx.respond("Looping queue", delete_after=5)
+        elif LOOP == 2:
+            LOOP = 0
+            await ctx.respond("Looping disabled", delete_after=5)
+    print("LOOP STATE: ", LOOP)
+
+
 async def process_audio(ctx, url):
     """Raw audio wrapper
     ctx: context
@@ -325,38 +369,57 @@ async def process_audio(ctx, url):
 async def __queueManager(ctx, song_data=None):
     global QUEUE
     global CP
+    global Played_songs
+    pprint(QUEUE.queue)
+    pprint(Played_songs)
+    print("__________")
     if ctx.voice_client is None:
         await ctx.author.voice.channel.connect()
+    if LOOP == 2:
+        for i in Played_songs:
+            QUEUE.put(i)
+        Played_songs = []
     if song_data is not None:  # Chill it's for song name
         with ytdl:
             song_info = ytdl.extract_info(song_data, download=False)
-    print(ctx.voice_client.is_paused(), ctx.voice_client.is_playing(), ctx.voice_client)
     await asyncio.sleep(1)
     if not ctx.voice_client.is_paused():
         if QUEUE.empty() and song_data is not None:
             QUEUE.put(song_data)
-            await ctx.channel.send(f"Added {song_info['title']} to the queue")
+            await ctx.channel.send(f"Added {song_info['title']} to the queue", delete_after=5)
             if not QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
+                if LOOP == 1:
+                    # no loop 2 here
+                    await process_audio(ctx, CP['url'])
+                else:
+                    song = QUEUE.get()
+                    with ytdl_music:
+                        CP = ytdl.extract_info(song, download=False)
+                    await ctx.channel.send(f":musical_note:  {CP['title']}")
+                    if LOOP == 2:
+                        Played_songs.append(CP['webpage_url'])
+                    await process_audio(ctx, CP['url'])
+        elif not QUEUE.empty() and song_data is not None:
+            QUEUE.put(song_data)
+            await ctx.channel.send(f"Added {song_info['title']} to the queue at position {QUEUE.qsize()}", delete_after=5)
+        elif not QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
+            # OMG it's the actual bot requesting more music better give it some
+            if LOOP == 1:
+                await process_audio(ctx, CP['url'])
+            else:
+                pprint(QUEUE.queue)
+                pprint(Played_songs)
+                print("__________")
                 song = QUEUE.get()
                 with ytdl_music:
                     CP = ytdl.extract_info(song, download=False)
-                await ctx.channel.send(f"Now playing {CP['title']}")
+                if not ctx.voice_client.is_playing():
+                    await ctx.channel.send(f":musical_note:  {CP['title']}")
+                if LOOP == 2:
+                    Played_songs.append(CP['webpage_url'])
                 await process_audio(ctx, CP['url'])
-        elif not QUEUE.empty() and song_data is not None:
-            QUEUE.put(song_data)
-            await ctx.channel.send(f"Added {song_info['title']} to the queue at position {QUEUE.qsize()}")
-        elif not QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
-            # OMG it's the actual bot requesting more music better give it some
-            song = QUEUE.get()
-            with ytdl_music:
-                CP = ytdl.extract_info(song, download=False)
-            # if this is the first time we are playing music, we need to send a message
-            if ctx.voice_client.is_playing() is False:
-                await ctx.channel.send(f"Now playing {CP['title']}")
-            # pprint(CP)
-            await process_audio(ctx, CP['url'])
         elif QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
-            await ctx.channel.send("The queue is empty")
+            Played_songs = []
             await leave(ctx)
 
 
@@ -409,8 +472,8 @@ def __PlaylistThread(ctx, playlist_url, YT):
                 QUEUE.put(song_data['entries'][0]['url'])
             asyncio.run_coroutine_threadsafe(msg.edit(content=f"Adding {int(playlist['total'])} songs to "
                                                               f"the queue. (:white_check_mark:)"), bot.loop)
-        else:
-            # playlist is Spotify
+        if "album" in playlist_url:
+            # playlist is Spotify album
             playlist = sp.album(playlist_url)
             # get all songs
             msg = asyncio.run_coroutine_threadsafe(ctx.respond(f"Adding {int(playlist['total_tracks'])} "
@@ -427,10 +490,11 @@ def __PlaylistThread(ctx, playlist_url, YT):
                     out.append(f"{i['name']} by {i['artists'][0]['name']}. YouTube Music")
             for i, song in enumerate(out):
                 if i % 4 == 0:
-                    asyncio.run_coroutine_threadsafe(msg.edit(content=f"Adding {int(playlist['total_tracks'])} songs to "
-                                                                      f"the queue. ("
-                                                                      f"{(int(i) / int(playlist['total_tracks'])) * 100}"
-                                                                      f"%)"), bot.loop)
+                    asyncio.run_coroutine_threadsafe(
+                        msg.edit(content=f"Adding {int(playlist['total_tracks'])} songs to "
+                                         f"the queue. ("
+                                         f"{(int(i) / int(playlist['total_tracks'])) * 100}"
+                                         f"%)"), bot.loop)
                 song_data = ytdl_slim.extract_info(f"ytsearch:{song}", download=False)
                 if ctx.voice_client is None:
                     asyncio.run_coroutine_threadsafe(ctx.author.voice.channel.connect(), bot.loop)
