@@ -116,10 +116,6 @@ async def ping(ctx):
     await ctx.respond(f"Pong! {round(bot.latency * 1000)}ms", delete_after=10)
 
 
-def __ThreadedDownload(thumbnail_url, loc):
-    urllib.request.urlretrieve(thumbnail_url, loc)
-
-
 def parse_date(date: str):
     """Takes a date in YYYYMMDD format and inserts slashes to make DD/MM/YYYY"""
     return f"{date[6:]}/{date[4:6]}/{date[:4]}"
@@ -164,7 +160,16 @@ class Music(commands.Cog):
         await ctx.respond(f"Joined {ctx.author.voice.channel}", delete_after=5)
 
     @discord.slash_command(name="play", description="Plays a song from a youtube link or a search query.")
-    async def play(self, ctx, url: str):
+    async def play(self, ctx, url: Option(str, "Optional. A Youtube link to play or Spotify song. Otherwise, "
+                                               "will try to force resume a song.", required=False, default=None)):
+        if url is None:
+            await self.__queueManager(ctx)
+            await ctx.respond("Tried to resume the queue.", delete_after=5)
+            return
+        if "playlist" in url:
+            # defer to playlist command
+            await self.recursiveAdd(ctx, url)
+            return
         await ctx.defer()
         await ctx.respond(":white_check_mark:", delete_after=5)
         with ctx.typing():
@@ -226,6 +231,7 @@ class Music(commands.Cog):
 
     @discord.slash_command(name="queue", description="Show the queue")
     async def viewQueue(self, ctx):
+        print(self.QUEUE)
         await ctx.defer()
         try:
             embed = discord.Embed(title="Queue",
@@ -235,14 +241,14 @@ class Music(commands.Cog):
                 embed.add_field(name=f"CP. {self.CP['title']}",
                                 value=f"Duration: {parse_duration(self.CP['duration'])}",
                                 inline=False)
+                for index, song in zip(range(10), self.QUEUE.queue):
+                    with ytdl_slim:
+                        song_info = ytdl_slim.extract_info(song, download=False)
+                    embed.add_field(name=f"{index + 1}. {song_info['title']}",
+                                    value=f"Duration: {parse_duration(song_info['duration'])}",
+                                    inline=False)
             except KeyError:
                 await ctx.respond("The queue is empty", delete_after=5)
-            for index, song in zip(range(10), self.QUEUE.queue):
-                with ytdl_slim:
-                    song_info = ytdl_slim.extract_info(song, download=False)
-                embed.add_field(name=f"{index + 1}. {song_info['title']}",
-                                value=f"Duration: {parse_duration(song_info['duration'])}",
-                                inline=False)
             await ctx.respond(embed=embed)
         except RuntimeError:
             await ctx.respond("The queue is currently being modified, please try again later.", delete_after=5)
@@ -265,13 +271,13 @@ class Music(commands.Cog):
     @discord.slash_command(name="clear", description="Clear the queue")
     async def clear(self, ctx):
         self.QUEUE.queue.clear()
-        Played_songs = []
+        self.Played_songs = []
         await ctx.respond("Cleared the queue", delete_after=5)
 
     @discord.slash_command(name="stop", description="Stop the music and clear the queue.")
     async def stop(self, ctx):
         self.QUEUE.queue.clear()
-        Played_songs = []
+        self.Played_songs = []
         try:
             ctx.voice_client.stop()
             await ctx.respond("Stopped", delete_after=5)
@@ -289,6 +295,7 @@ class Music(commands.Cog):
 
     @discord.slash_command(name="nowplaying", description="Query the song playing", aliases=["np", "info", "song"])
     async def nowplaying(self, ctx):
+        pprint(self.CP)
         embed = discord.Embed(title="Now Playing", description=f"Currently playing {self.CP['title']}",
                               color=self.GetEmbedColor(self.CP['thumbnail']))
         try:
@@ -351,13 +358,13 @@ class Music(commands.Cog):
             elif self.LOOP == 2:
                 self.LOOP = 0
                 await ctx.respond("Looping disabled", delete_after=5)
-        print("LOOP STATE: ", self.LOOP)
+        print("loop: LOOP STATE: ", self.LOOP)
 
     async def process_audio(self, ctx, url):
         """Raw audio wrapper
         ctx: context
         url: url of the song (Direct link to the song)"""
-        print("Told to play \n" + url)
+        print("process_audio: Told to play \n" + url)
         try:
             if ctx.voice_client is None:
                 try:
@@ -379,6 +386,10 @@ class Music(commands.Cog):
         pprint(self.QUEUE.queue)
         pprint(self.Played_songs)
         print("__________")
+        # if the next item in the queue is not a url, then pop it
+        if self.QUEUE.queue:
+            if not url_rx.match(self.QUEUE.queue[0]):
+                self.QUEUE.get()
         if ctx.voice_client is None:
             await ctx.author.voice.channel.connect()
         if self.LOOP == 2:
@@ -394,17 +405,22 @@ class Music(commands.Cog):
                 self.QUEUE.put(song_data)
                 await ctx.channel.send(f"Added {song_info['title']} to the queue", delete_after=5)
                 if not self.QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
-                    if self.LOOP == 1:
+                    if self.LOOP == 1: # if loop is set to song
                         # no loop 2 here
                         await self.process_audio(ctx, self.CP['url'])
                     else:
                         song = self.QUEUE.get()
                         with ytdl_music:
-                            CP = ytdl.extract_info(song, download=False)
-                        await ctx.channel.send(f":musical_note:  {CP['title']}")
+                            self.CP = ytdl.extract_info(song, download=False)
+                        if self.LOOP == 0: # Loop is off
+                            await ctx.channel.send(f":musical_note:  {self.CP['title']}")
+                        elif self.LOOP == 1: # Loop is song
+                            await ctx.channel.send(f":musical_note:  {self.CP['title']} :repeat:")
+                        elif self.LOOP == 2: # Loop is queue
+                            await ctx.channel.send(f":musical_note:  {self.CP['title']} :repeat_one:")
                         if self.LOOP == 2:
-                            self.Played_songs.append(CP['webpage_url'])
-                        await self.process_audio(ctx, CP['url'])
+                            self.Played_songs.append(self.CP['webpage_url'])
+                        await self.process_audio(ctx, self.CP['url'])
             elif not self.QUEUE.empty() and song_data is not None:
                 self.QUEUE.put(song_data)
                 await ctx.channel.send(f"Added {song_info['title']} to the queue at position {self.QUEUE.qsize()}",
@@ -419,12 +435,17 @@ class Music(commands.Cog):
                     print("__________")
                     song = self.QUEUE.get()
                     with ytdl_music:
-                        CP = ytdl.extract_info(song, download=False)
+                        self.CP = ytdl.extract_info(song, download=False)
                     if not ctx.voice_client.is_playing():
-                        await ctx.channel.send(f":musical_note:  {CP['title']}")
+                        if self.LOOP == 0:  # Loop is off
+                            await ctx.channel.send(f":musical_note:  {self.CP['title']}")
+                        elif self.LOOP == 1:  # Loop is song
+                            await ctx.channel.send(f":musical_note:  {self.CP['title']} :repeat:")
+                        elif self.LOOP == 2:  # Loop is queue
+                            await ctx.channel.send(f":musical_note:  {self.CP['title']} :repeat_one:")
                     if self.LOOP == 2:
-                        self.Played_songs.append(CP['webpage_url'])
-                    await self.process_audio(ctx, CP['url'])
+                        self.Played_songs.append(self.CP['webpage_url'])
+                    await self.process_audio(ctx, self.CP['url'])
             elif self.QUEUE.empty() and ctx.voice_client is not None and not ctx.voice_client.is_playing():
                 self.Played_songs = []
                 await self.leave(ctx)
@@ -507,9 +528,13 @@ class Music(commands.Cog):
                         asyncio.run_coroutine_threadsafe(ctx.author.voice.channel.connect(), self.bot.loop)
                     print("Found: " + song_data['entries'][0]['url'])
                     self.QUEUE.put(song_data['entries'][0]['url'])
-                    asyncio.run_coroutine_threadsafe(msg.edit(content=f"Adding {int(playlist['total'])} songs to "
-                                                                      f"the queue. (:white_check_mark:)"),
-                                                     self.bot.loop)
+                asyncio.run_coroutine_threadsafe(msg.edit(content=f"Adding {int(playlist['total_tracks'])} songs to "
+                                                                  f"the queue. (:white_check_mark:)"),
+                                                 self.bot.loop)
+
+    @staticmethod
+    def __ThreadedDownload(thumbnail_url, loc):
+        urllib.request.urlretrieve(thumbnail_url, loc)
 
     def GetEmbedColor(self, thumbnail_url):
         # make sure the format matches remote image
