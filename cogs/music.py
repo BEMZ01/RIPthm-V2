@@ -108,7 +108,7 @@ class Music(commands.Cog):
         self.playing_message = None
         self.update_playing_message.start()
         self.test_vid.start()
-        self.sponsorBlock = False
+        self.sponsorBlock = True
         lavalink.add_event_hook(self.track_hook)
         bot.loop.create_task(self.connect())
 
@@ -161,17 +161,24 @@ class Music(commands.Cog):
             return
         else:
             player = self.bot.lavalink.player_manager.get(self.playing_message.guild.id)
-            if player.current:
+            if player.current and self.sponsorBlock:
                 try:
                     segments = sbClient.get_skip_segments(player.current.uri)
-                except sb.errors.NotFoundException:
+                except Exception as e:
                     segments = None
                 if segments:
                     # seek past any segments that are in segments
                     for segment in segments:
                         if float(segment.start * 1000) < player.position < float(segment.end * 1000):
-                            await player.seek(int(segment.end*1000))
-                            await self.playing_message.channel.send("Skipped a segment because it was: `"+segment.category+"`. Use /sponsorblock to disable this.", delete_after=5)
+                            await player.seek(int(segment.end * 1000))
+                            embed = discord.Embed(title="SponsorBlock",
+                                                  description=f'Skipped segment because it was: `{segment.category}`',
+                                                  color=discord.Color.brand_red())
+
+                            await self.playing_message.channel.send("Skipped a segment because it was: `" +
+                                                                    segment.category +
+                                                                    "`. Use /sponsorblock to disable this.",
+                                                                    delete_after=30)
 
     def cog_unload(self):
         """ Cog unload handler. This removes any event hooks that were registered. """
@@ -264,7 +271,7 @@ class Music(commands.Cog):
         # Results could be None if Lavalink returns an invalid response (non-JSON/non-200 (OK)).
         # Alternatively, results.tracks could be an empty array if the query yielded no tracks.
         if not results or not results.tracks:
-            return await ctx.send('Nothing found!')
+            return await ctx.respond('Nothing found!', delete_after=10, ephemeral=True)
 
         embed = discord.Embed(color=discord.Color.blurple())
 
@@ -291,7 +298,7 @@ class Music(commands.Cog):
             player.add(requester=ctx.author.id, track=track)
 
         # send thumbs up
-        await ctx.send("Enqueued song", delete_after=5)
+        await ctx.respond("Enqueued song", delete_after=1, ephemeral=True)
 
         # We don't want to call .play() if the player is playing as that will effectively skip
         # the current track.
@@ -319,7 +326,7 @@ class Music(commands.Cog):
         if strength == 0.0:
             await player.remove_filter('lowpass')
             embed.description = 'Disabled **Low Pass Filter**'
-            return await ctx.send(embed=embed)
+            return await ctx.respond(embed=embed, delete_after=10, ephemeral=True)
 
         # Let's create our filter.
         low_pass = LowPass()
@@ -330,7 +337,7 @@ class Music(commands.Cog):
         await player.set_filter(low_pass)
 
         embed.description = f'Set **Low Pass Filter** strength to {strength}.'
-        await ctx.send(embed=embed)
+        await ctx.respond(embed=embed, delete_after=10, ephemeral=True)
 
     @commands.slash_command(name="disconnect", description="Disconnect the bot from the voice channel",
                             guild_ids=guild_ids)
@@ -340,12 +347,12 @@ class Music(commands.Cog):
 
         if not ctx.voice_client:
             # We can't disconnect, if we're not connected.
-            return await ctx.send('Not connected.')
+            return await ctx.respond('Not connected.', delete_after=10, ephemeral=True)
 
         if not ctx.author.voice or (player.is_connected and ctx.author.voice.channel.id != int(player.channel_id)):
             # Abuse prevention. Users not in voice channels, or not in the same voice channel as the bot
             # may not disconnect the bot.
-            return await ctx.send('You\'re not in my voice channel!')
+            return await ctx.respond('You\'re not in my voice channel!', delete_after=10, ephemeral=True)
 
         # Clear the queue to ensure old tracks don't start playing
         # when someone else queues something.
@@ -359,7 +366,7 @@ class Music(commands.Cog):
             self.playing_message = None
         except AttributeError:
             pass
-        await ctx.send('*⃣ | Disconnected.')
+        await ctx.respond('*⃣ | Disconnected.', delete_after=10, ephemeral=True)
 
     @commands.slash_command(name="pause", description="Pause/resume the current song", aliases=['resume'],
                             guild_ids=guild_ids)
@@ -449,14 +456,23 @@ class Music(commands.Cog):
         player.set_shuffle(not player.shuffle)
         await ctx.respond(f'Shuffle {"enabled" if player.shuffle else "disabled"}', delete_after=5)
 
+    @commands.slash_command(name="skip", description="Skip the current song")
+    async def skip(self, ctx: discord.ApplicationContext):
+        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+        if not ctx.author.voice or (player.is_connected and ctx.author.voice.channel.id != int(player.channel_id)):
+            return await ctx.respond('You\'re not in my voice channel!', delete_after=5, ephemeral=True)
+        if not player.is_playing:
+            return await ctx.respond('Nothing playing.', delete_after=5, ephemeral=True)
+        await player.skip()
+        await ctx.respond('⏭ | Skipped the song.', delete_after=5, ephemeral=True)
+
     @commands.slash_command(name="sponsorblock", description="Toggle the sponsorblock integration.")
     async def sponsorblock(self, ctx: discord.ApplicationContext):
-        self.sponsorblock = not self.sponsorblock
-        if sponsorblock:
-            ctx.respond("SponsorBlock has been enabled!", delete_after=5, ephemeral=True)
+        self.sponsorBlock = not self.sponsorBlock
+        if self.sponsorBlock:
+            await ctx.respond("SponsorBlock has been enabled!", delete_after=5, ephemeral=True)
         else:
-            ctx.respond("SponsorBlock has been disabled!", delete_after=5, ephemeral=True)
-        
+            await ctx.respond("SponsorBlock has been disabled!", delete_after=5, ephemeral=True)
 
 
 def setup(bot):
