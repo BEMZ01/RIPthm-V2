@@ -4,7 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="I love OOP :(">
+    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="Fixed some stuff here and there">
+      <change afterPath="$PROJECT_DIR$/cogs/music.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
@@ -91,6 +92,12 @@
       <workItem from="1666445195060" duration="3865000" />
       <workItem from="1666449223837" duration="1191000" />
       <workItem from="1666460092793" duration="4047000" />
+      <workItem from="1666476080087" duration="219000" />
+      <workItem from="1667255827259" duration="144000" />
+      <workItem from="1668899597136" duration="11184000" />
+      <workItem from="1668946267509" duration="9306000" />
+      <workItem from="1668962353957" duration="2780000" />
+      <workItem from="1668981248919" duration="367000" />
     </task>
     <task id="LOCAL-00001" summary="Added code">
       <created>1665138238842</created>
@@ -162,7 +169,14 @@
       <option name="project" value="LOCAL" />
       <updated>1665324106078</updated>
     </task>
-    <option name="localTasksCounter" value="11" />
+    <task id="LOCAL-00011" summary="Fixed some stuff here and there">
+      <created>1666476121113</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1666476121113</updated>
+    </task>
+    <option name="localTasksCounter" value="12" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -190,9 +204,10 @@
     <MESSAGE value="Added Loop feature" />
     <MESSAGE value="+ requirements.txt" />
     <MESSAGE value="I love OOP :(" />
-    <option name="LAST_COMMIT_MESSAGE" value="I love OOP :(" />
+    <MESSAGE value="Fixed some stuff here and there" />
+    <option name="LAST_COMMIT_MESSAGE" value="Fixed some stuff here and there" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/RIPthm_V2$main.coverage" NAME="main Coverage Results" MODIFIED="1666465098038" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/RIPthm_V2$main.coverage" NAME="main Coverage Results" MODIFIED="1668981254337" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>
