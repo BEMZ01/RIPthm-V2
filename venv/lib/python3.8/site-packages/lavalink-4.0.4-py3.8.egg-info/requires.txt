@@ -1,0 +1,12 @@
+aiohttp<3.9.0,>=3.7.4
+
+[development]
+pylint
+flake8
+
+[docs]
+sphinx
+pygments
+guzzle_sphinx_theme
+enum_tools
+sphinx_toolbox

@@ -1,0 +1,32 @@
+Metadata-Version: 2.1
+Name: sponsorblock
+Version: 0.1.3
+Summary: A mirror package for sponsorblock.py. Please install that instead.
+Home-page: https://wasi-master.github.io/sponsorblock.py/
+Author: Wasi Master
+Author-email: arianmollik323@gmail.com
+License: UNKNOWN
+Project-URL: Github, https://github.com/wasi-master/sponsorblock.py
+Project-URL: Bug Tracker, https://github.com/wasi-master/sponsorblock.py/issues
+Project-URL: Documentation, https://sponsorblockpy.readthedocs.io/en/latest/
+Project-URL: Say Thanks, https://saythanks.io/to/arianmollik323@gmail.com
+Keywords: sponsorblock.py documentation sponsorblock python wrapper
+Platform: UNKNOWN
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Intended Audience :: Developers
+Classifier: Natural Language :: English
+Classifier: Topic :: Internet
+Description-Content-Type: text/markdown
+Requires-Dist: sponsorblock.py
+
+### This is a mirror package!
+
+It is recommended to install [`sponsorblock.py`](https://pypi.org/project/sponsorblock.py/) instead.
+
+PYPI: <https://pypi.org/project/sponsorblock.py/>\
+GitHub: <https://github.com/wasi-master/sponsorblock.py/tree/main>\
+Documentation: <https://sponsorblockpy.readthedocs.io/en/latest/>
+
+

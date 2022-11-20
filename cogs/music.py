@@ -108,6 +108,7 @@ class Music(commands.Cog):
         self.playing_message = None
         self.update_playing_message.start()
         self.test_vid.start()
+        self.sponsorBlock = False
         lavalink.add_event_hook(self.track_hook)
         bot.loop.create_task(self.connect())
 
@@ -115,7 +116,7 @@ class Music(commands.Cog):
         await self.bot.wait_until_ready()
         if not hasattr(self.bot, 'lavalink'):  # This ensures the client isn't overwritten during cog reloads.
             self.bot.lavalink = lavalink.Client(self.bot.user.id)
-            self.bot.lavalink.add_node('127.0.0.1', 2333, 'youshallnotpass', 'eu',
+            self.bot.lavalink.add_node('90.240.58.165', 2333, os.getenv("LAVA_TOKEN"), 'eu',
                                        'default-node')
 
     @tasks.loop(seconds=5)
@@ -168,9 +169,9 @@ class Music(commands.Cog):
                 if segments:
                     # seek past any segments that are in segments
                     for segment in segments:
-                        print(float(segment.start * 1000), player.position, float(segment.end * 1000))
                         if float(segment.start * 1000) < player.position < float(segment.end * 1000):
-                            await player.seek(segment.end)
+                            await player.seek(int(segment.end*1000))
+                            await self.playing_message.channel.send("Skipped a segment because it was: `"+segment.category+"`. Use /sponsorblock to disable this.", delete_after=5)
 
     def cog_unload(self):
         """ Cog unload handler. This removes any event hooks that were registered. """
@@ -447,6 +448,15 @@ class Music(commands.Cog):
             return await ctx.respond('Nothing queued.', delete_after=5, ephemeral=True)
         player.set_shuffle(not player.shuffle)
         await ctx.respond(f'Shuffle {"enabled" if player.shuffle else "disabled"}', delete_after=5)
+
+    @commands.slash_command(name="sponsorblock", description="Toggle the sponsorblock integration.")
+    async def sponsorblock(self, ctx: discord.ApplicationContext):
+        self.sponsorblock = not self.sponsorblock
+        if sponsorblock:
+            ctx.respond("SponsorBlock has been enabled!", delete_after=5, ephemeral=True)
+        else:
+            ctx.respond("SponsorBlock has been disabled!", delete_after=5, ephemeral=True)
+        
 
 
 def setup(bot):

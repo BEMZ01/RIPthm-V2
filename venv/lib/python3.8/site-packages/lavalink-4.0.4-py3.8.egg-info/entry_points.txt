@@ -1,0 +1,3 @@
+[console_scripts]
+lavalink = lavalink.__main__:main
+
