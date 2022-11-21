@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/x/PycharmProjects/RIPthm-V2/venv/bin/python
 # -*- coding: utf-8 -*-
 import re
 import sys

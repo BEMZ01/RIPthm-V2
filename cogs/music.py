@@ -1,5 +1,9 @@
 import asyncio
+import json
+import random
 import re
+from pprint import pprint
+
 import discord
 import lavalink
 import spotipy
@@ -21,13 +25,6 @@ sbClient = sb.Client()
 
 
 class LavalinkVoiceClient(discord.VoiceClient):
-    """
-    This is the preferred way to handle external voice sending
-    This client will be created via a cls in the connect method of the channel
-    see the following documentation:
-    https://discordpy.readthedocs.io/en/latest/api.html#voiceprotocol
-    """
-
     def __init__(self, client: discord.Client, channel: discord.abc.Connectable):
         self.client = client
         self.channel = channel
@@ -140,11 +137,16 @@ class Music(commands.Cog):
                 if player.paused:
                     embed = discord.Embed(title="Paused " + loop + " " + shuffle,
                                           description=f'[{player.current.title}]({player.current.uri})',
-                                          color=discord.Color.blurple())
+                                          # generate random hex color
+                                          color=discord.Color.from_rgb(random.randint(0, 255),
+                                                                       random.randint(0, 255),
+                                                                       random.randint(0, 255)))
                 else:
                     embed = discord.Embed(title="Now Playing " + loop + " " + shuffle,
                                           description=f'[{player.current.title}]({player.current.uri})',
-                                          color=discord.Color.blurple())
+                                          color=discord.Color.from_rgb(random.randint(0, 255),
+                                                                       random.randint(0, 255),
+                                                                       random.randint(0, 255)))
                 if player.current is None:
                     return
                 else:
@@ -174,11 +176,9 @@ class Music(commands.Cog):
                             embed = discord.Embed(title="SponsorBlock",
                                                   description=f'Skipped segment because it was: `{segment.category}`',
                                                   color=discord.Color.brand_red())
+                            embed.set_footer(text=f'`Use /sponsorblock to toggle the SponsorBlock integration.`')
 
-                            await self.playing_message.channel.send("Skipped a segment because it was: `" +
-                                                                    segment.category +
-                                                                    "`. Use /sponsorblock to disable this.",
-                                                                    delete_after=30)
+                            await self.playing_message.channel.send(embed=embed, delete_after=30)
 
     def cog_unload(self):
         """ Cog unload handler. This removes any event hooks that were registered. """
@@ -187,7 +187,7 @@ class Music(commands.Cog):
     async def cog_before_invoke(self, ctx: discord.ApplicationContext):
         """ Command before-invoke handler. """
         guild_check = ctx.guild is not None
-        #  This is essentially the same as `@commands.guild_only()`
+        #  This is essentially the same as `@commands.guild_only()`https://open.spotify.com/playlist/1ClDxtAGMAFMW703Kho976?si=f2a1ad4beece4aa9&pt=f1210a416eb21d822c9b83dc7d0d6092
         #  except it saves us repeating ourselves (and also a few lines).
 
         if guild_check:
@@ -237,7 +237,7 @@ class Music(commands.Cog):
             await ctx.author.voice.channel.connect(cls=LavalinkVoiceClient)
         else:
             if v_client.channel.id != ctx.author.voice.channel.id:
-                raise commands.CommandInvokeError('You need to be in my voice channel.')
+                raise commands.CommandInvokeError(Exception('You need to be in my voice channel.'))
 
     async def track_hook(self, event):
         if isinstance(event, lavalink.events.QueueEndEvent):
@@ -264,6 +264,39 @@ class Music(commands.Cog):
         # SoundCloud searching is possible by prefixing "scsearch:" instead.
         if not url_rx.match(query):
             query = f'ytsearch:{query}'
+        elif query.startswith('https://open.spotify.com/playlist/'):
+            await ctx.respond("👍", delete_after=1, ephemeral=True)
+            message = await ctx.send("Initializing Spotify wrapper... (0%)")
+            # Spotify playlist support via spotipy
+            # This is a bit hacky, but it works.
+            playlist = sp.playlist(query)
+            # place all track names into a list
+            tracks = []
+            for item in playlist['tracks']['items']:
+                tracks.append(f"{item['track']['name']} - {item['track']['artists'][0]['name']}")
+            while playlist['tracks']['next'] is not None:
+                playlist = sp.next(playlist['tracks'])
+                # append all track names to the list
+                for item in playlist['items']:
+                    tracks.append(f"{item['track']['name']} - {item['track']['artists'][0]['name']}")
+                if playlist['next'] is None:
+                    break
+            for x in range(len(tracks)):
+                results = await player.node.get_tracks(f'ytsearch:{tracks[x]}')
+                if not results or not results.tracks:
+                    pass
+                else:
+                    track = results.tracks[0]
+                    player.add(requester=ctx.author.id, track=track)
+                if x % 10 == 0:
+                    await message.edit(content=f"Adding from {playlist['name']}... ({round(x / len(tracks) * 100)}%)")
+                if not player.is_playing:
+                    await player.play()
+                    embed = discord.Embed(title="Now playing", description=f"[{track.title}]({track.uri})")
+                    self.playing_message = await ctx.channel.send(embed=embed)
+            await message.edit(content="Added Spotify playlist to queue.")
+            await asyncio.sleep(5)
+            await message.delete()
 
         # Get the results for the query from Lavalink.
         results = await player.node.get_tracks(query)

@@ -5,8 +5,27 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="RIPTHM v3 Starts here!">
+      <change beforePath="$PROJECT_DIR$/.idea/RIPthm2.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/RIPthm2.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/cogs/music.py" beforeDir="false" afterPath="$PROJECT_DIR$/cogs/music.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/venv/bin/activate" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/activate" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/venv/bin/activate.csh" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/activate.csh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/venv/bin/activate.fish" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/activate.fish" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/venv/bin/dotenv" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/dotenv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/venv/bin/f2py" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/f2py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/venv/bin/f2py3" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/f2py3" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/venv/bin/futurize" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/futurize" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/venv/bin/lavalink" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/lavalink" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/venv/bin/normalizer" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/normalizer" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/venv/bin/pasteurize" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/pasteurize" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/venv/bin/pip" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/pip" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/venv/bin/pip3" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/pip3" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/venv/bin/python" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/python" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/venv/bin/python3" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/python3" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/venv/bin/sponsorblock" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/sponsorblock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/venv/pyvenv.cfg" beforeDir="false" afterPath="$PROJECT_DIR$/venv/pyvenv.cfg" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -42,7 +61,8 @@
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;
   }
 }</component>
   <component name="RunManager">
@@ -53,12 +73,22 @@
       <envs>
         <env name="PYTHONUNBUFFERED" value="1" />
       </envs>
-      <option name="SDK_HOME" value="C:\Users\benmi\PycharmProjects\RIPthm2\venv\Scripts\python.exe" />
+      <option name="SDK_HOME" value="" />
       <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
-      <option name="IS_MODULE_SDK" value="false" />
+      <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <EXTENSION ID="net.ashald.envfile">
+        <option name="IS_ENABLED" value="false" />
+        <option name="IS_SUBST" value="false" />
+        <option name="IS_PATH_MACRO_SUPPORTED" value="false" />
+        <option name="IS_IGNORE_MISSING_FILES" value="false" />
+        <option name="IS_ENABLE_EXPERIMENTAL_INTEGRATIONS" value="false" />
+        <ENTRIES>
+          <ENTRY IS_ENABLED="true" PARSER="runconfig" IS_EXECUTABLE="false" />
+        </ENTRIES>
+      </EXTENSION>
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/main.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
@@ -97,6 +127,9 @@
       <workItem from="1668962353957" duration="2780000" />
       <workItem from="1668981248919" duration="3760000" />
       <workItem from="1668985581331" duration="2335000" />
+      <workItem from="1669021564926" duration="4061000" />
+      <workItem from="1669026355910" duration="4693000" />
+      <workItem from="1669037162447" duration="3117000" />
     </task>
     <task id="LOCAL-00001" summary="Added code">
       <created>1665138238842</created>
@@ -215,6 +248,6 @@
     <option name="LAST_COMMIT_MESSAGE" value="RIPTHM v3 Starts here!" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/RIPthm_V2$main.coverage" NAME="main Coverage Results" MODIFIED="1668987736042" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/RIPthm_V2$main.coverage" NAME="main Coverage Results" MODIFIED="1669040959146" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>
