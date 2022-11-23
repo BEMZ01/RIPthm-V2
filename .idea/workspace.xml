@@ -4,28 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="RIPTHM v3 Starts here!">
-      <change beforePath="$PROJECT_DIR$/.idea/RIPthm2.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/RIPthm2.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="Added cool features">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/cogs/music.py" beforeDir="false" afterPath="$PROJECT_DIR$/cogs/music.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/bin/activate" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/activate" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/bin/activate.csh" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/activate.csh" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/bin/activate.fish" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/activate.fish" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/bin/dotenv" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/dotenv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/bin/f2py" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/f2py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/bin/f2py3" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/f2py3" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/bin/futurize" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/futurize" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/bin/lavalink" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/lavalink" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/bin/normalizer" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/normalizer" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/bin/pasteurize" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/pasteurize" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/bin/pip" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/pip" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/bin/pip3" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/pip3" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/bin/python" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/python" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/bin/python3" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/python3" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/bin/sponsorblock" beforeDir="false" afterPath="$PROJECT_DIR$/venv/bin/sponsorblock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/pyvenv.cfg" beforeDir="false" afterPath="$PROJECT_DIR$/venv/pyvenv.cfg" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -129,7 +110,10 @@
       <workItem from="1668985581331" duration="2335000" />
       <workItem from="1669021564926" duration="4061000" />
       <workItem from="1669026355910" duration="4693000" />
-      <workItem from="1669037162447" duration="3117000" />
+      <workItem from="1669037162447" duration="3258000" />
+      <workItem from="1669043061807" duration="1247000" />
+      <workItem from="1669203612258" duration="2234000" />
+      <workItem from="1669206051065" duration="802000" />
     </task>
     <task id="LOCAL-00001" summary="Added code">
       <created>1665138238842</created>
@@ -215,7 +199,14 @@
       <option name="project" value="LOCAL" />
       <updated>1668981652572</updated>
     </task>
-    <option name="localTasksCounter" value="13" />
+    <task id="LOCAL-00013" summary="Added cool features">
+      <created>1669041196824</created>
+      <option name="number" value="00013" />
+      <option name="presentableId" value="LOCAL-00013" />
+      <option name="project" value="LOCAL" />
+      <updated>1669041196825</updated>
+    </task>
+    <option name="localTasksCounter" value="14" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -245,9 +236,10 @@
     <MESSAGE value="I love OOP :(" />
     <MESSAGE value="Fixed some stuff here and there" />
     <MESSAGE value="RIPTHM v3 Starts here!" />
-    <option name="LAST_COMMIT_MESSAGE" value="RIPTHM v3 Starts here!" />
+    <MESSAGE value="Added cool features" />
+    <option name="LAST_COMMIT_MESSAGE" value="Added cool features" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/RIPthm_V2$main.coverage" NAME="main Coverage Results" MODIFIED="1669040959146" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/RIPthm_V2$main.coverage" NAME="main Coverage Results" MODIFIED="1669206574079" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

@@ -24,6 +24,18 @@ sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLI
 sbClient = sb.Client()
 
 
+class Effect():
+    def __init__(self, nightcore: bool = False, vaporwave: bool = False):
+        self.nightcore = nightcore
+        self.vaporwave = vaporwave
+
+    def set(self, tag: str, state: bool):
+        if tag == "nightcore":
+            self.nightcore = state
+        elif tag == "vaporwave":
+            self.vaporwave = state
+
+
 class LavalinkVoiceClient(discord.VoiceClient):
     def __init__(self, client: discord.Client, channel: discord.abc.Connectable):
         self.client = client
@@ -106,6 +118,7 @@ class Music(commands.Cog):
         self.update_playing_message.start()
         self.test_vid.start()
         self.sponsorBlock = True
+        self.Effect = Effect(True, True)
         lavalink.add_event_hook(self.track_hook)
         bot.loop.create_task(self.connect())
 
@@ -339,6 +352,33 @@ class Music(commands.Cog):
             await player.play()
             self.playing_message = await ctx.channel.send(embed=embed)
 
+    @commands.slash_command(name="playskip", description="Insert a song to the front of the queue and skip the current song")
+    async def playskip(self, ctx: discord.ApplicationContext, *, query: str):
+        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+        query = query.strip('<>')
+        if not url_rx.match(query):
+            query = f'ytsearch:{query}'
+        else:
+            await ctx.respond("Use `/play` to add playlists to the queue", delete_after=10, ephemeral=True)
+            return
+        results = await player.node.get_tracks(query)
+        if not results or not results.tracks:
+            return await ctx.respond('Nothing found!', delete_after=10, ephemeral=True)
+        embed = discord.Embed(color=discord.Color.blurple())
+        if results.load_type == 'PLAYLIST_LOADED':
+            await ctx.respond("Use `/play` to add playlists to the queue", delete_after=10, ephemeral=True)
+        else:
+            track = results.tracks[0]
+            embed.title = 'Now Playing'
+            embed.description = f'[{track.title}]({track.uri})'
+            player.add(requester=ctx.author.id, track=track, index=0)
+        await ctx.respond("", delete_after=1, ephemeral=True, embed=embed)
+        if not player.is_playing:
+            await player.play()
+            self.playing_message = await ctx.channel.send(embed=embed)
+        else:
+            await player.skip()
+
     @commands.slash_command(name="lowpass", description="Set the lowpass filter strength")
     async def lowpass(self, ctx: discord.ApplicationContext, strength: float):
         """ Sets the strength of the low pass filter. """
@@ -370,6 +410,112 @@ class Music(commands.Cog):
         await player.set_filter(low_pass)
 
         embed.description = f'Set **Low Pass Filter** strength to {strength}.'
+        await ctx.respond(embed=embed, delete_after=10, ephemeral=True)
+
+    @commands.slash_command(name="karaoke", description="Set the karaoke filter")
+    async def karaoke(self, ctx: discord.ApplicationContext, level: float, mono_level: float, filter_band: float, filter_width: float):
+        """ Sets the karaoke filter. """
+        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+
+        # We will enforce a minimum of 0.0 and a maximum of 1.0 for each of these values.
+        level = max(0.0, min(1.0, level))
+        mono_level = max(0.0, min(1.0, mono_level))
+        filter_band = max(0.0, min(1.0, filter_band))
+        filter_width = max(0.0, min(1.0, filter_width))
+
+        embed = discord.Embed(color=discord.Color.blurple(), title='Karaoke Filter')
+
+        # If the level is 0.0, then we can just disable the filter.
+        if level == 0.0:
+            await player.remove_filter('karaoke')
+            embed.description = 'Disabled **Karaoke Filter**'
+            return await ctx.respond(embed=embed, delete_after=10, ephemeral=True)
+
+        # Create the filter.
+        karaoke = Karaoke()
+        karaoke.update(level=level, mono_level=mono_level, filter_band=filter_band, filter_width=filter_width)
+
+        # Apply the filter.
+        await player.set_filter(karaoke)
+
+        embed.description = f'Set **Karaoke Filter** level to {level}.'
+        await ctx.respond(embed=embed, delete_after=10, ephemeral=True)
+
+    @commands.slash_command(name="timescale", description="Set the timescale filter")
+    async def timescale(self, ctx: discord.ApplicationContext, speed: float, pitch: float, rate: float):
+        """ Sets the timescale filter. """
+        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+
+        # We will enforce a minimum of 0.1 and a maximum of 2.0 for each of these values.
+        speed = max(0.1, min(2.0, speed))
+        pitch = max(0.1, min(2.0, pitch))
+        rate = max(0.1, min(2.0, rate))
+
+        embed = discord.Embed(color=discord.Color.blurple(), title='Timescale Filter')
+
+        # If the speed is 1.0, then we can just disable the filter.
+        if speed == 1.0:
+            await player.remove_filter('timescale')
+            embed.description = 'Disabled **Timescale Filter**'
+            return await ctx.respond(embed=embed, delete_after=10, ephemeral=True)
+
+        # Create the filter.
+        timescale = Timescale()
+        timescale.update(speed=speed, pitch=pitch, rate=rate)
+
+        # Apply the filter.
+        await player.set_filter(timescale)
+
+        embed.description = f'Set **Timescale Filter** speed to {speed}.'
+        await ctx.respond(embed=embed, delete_after=10, ephemeral=True)
+
+    @commands.slash_command(name="nightcore", description="Toggle the nightcore filter")
+    async def nightcore(self, ctx: discord.ApplicationContext):
+        self.Effect.nightcore = not self.Effect.nightcore
+        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+        if self.Effect.nightcore:
+            embed = discord.Embed(color=discord.Color.blurple(), title='Nightcore Filter')
+            embed.description = 'Disabled **Nightcore Filter**'
+            await player.remove_filter('timescale')
+            await ctx.respond(embed=embed, delete_after=10, ephemeral=True)
+        else:
+            embed = discord.Embed(color=discord.Color.blurple(), title='Nightcore Filter')
+            embed.description = 'Enabled **Nightcore Filter**'
+            timescale = Timescale()
+            timescale.update(speed=1.3, pitch=1.3, rate=1.3)
+            await player.set_filter(timescale)
+            await ctx.respond(embed=embed, delete_after=10, ephemeral=True)
+
+    @commands.slash_command(name="vaporwave", description="Toggle the vaporwave filter")
+    async def vaporwave(self, ctx: discord.ApplicationContext):
+        self.Effect.vaporwave = not self.Effect.vaporwave
+        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+        if self.Effect.vaporwave:
+            embed = discord.Embed(color=discord.Color.blurple(), title='Vaporwave Filter')
+            embed.description = 'Disabled **Vaporwave Filter**'
+            await player.remove_filter('timescale')
+            await ctx.respond(embed=embed, delete_after=10, ephemeral=True)
+        else:
+            embed = discord.Embed(color=discord.Color.blurple(), title='Vaporwave Filter')
+            embed.description = 'Enabled **Vaporwave Filter**'
+            timescale = Timescale()
+            timescale.update(speed=0.8, pitch=0.8, rate=0.8)
+            await player.set_filter(timescale)
+            await ctx.respond(embed=embed, delete_after=10, ephemeral=True)
+            
+
+
+
+    @commands.slash_command(name="reset", description="Clear all filters")
+    async def reset(self, ctx: discord.ApplicationContext):
+        """ Resets all filters. """
+        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+
+        # Remove all filters.
+        await player.reset_filters()
+
+        embed = discord.Embed(color=discord.Color.blurple(), title='Reset Filters')
+        embed.description = 'Removed all filters.'
         await ctx.respond(embed=embed, delete_after=10, ephemeral=True)
 
     @commands.slash_command(name="disconnect", description="Disconnect the bot from the voice channel",
