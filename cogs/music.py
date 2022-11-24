@@ -1,9 +1,6 @@
 import asyncio
-import json
 import random
 import re
-from pprint import pprint
-
 import discord
 import lavalink
 import spotipy
@@ -24,7 +21,7 @@ sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLI
 sbClient = sb.Client()
 
 
-class Effect():
+class Effect:
     def __init__(self, nightcore: bool = False, vaporwave: bool = False):
         self.nightcore = nightcore
         self.vaporwave = vaporwave
@@ -113,10 +110,12 @@ def progress_bar(player):
 
 class Music(commands.Cog):
     def __init__(self, bot):
+        self.disconnect_timer = False
         self.bot = bot
         self.playing_message = None
         self.update_playing_message.start()
         self.test_vid.start()
+        self.check_call.start()
         self.sponsorBlock = True
         self.Effect = Effect(True, True)
         lavalink.add_event_hook(self.track_hook)
@@ -128,6 +127,26 @@ class Music(commands.Cog):
             self.bot.lavalink = lavalink.Client(self.bot.user.id)
             self.bot.lavalink.add_node('90.240.58.165', 2333, os.getenv("LAVA_TOKEN"), 'eu',
                                        'default-node')
+
+    @tasks.loop(minutes=1)
+    async def check_call(self):
+        """Check the voice channel to see if the bot is the only one in the channel"""
+        player = self.bot.lavalink.player_manager.get(self.playing_message.guild.id)
+        if player.is_connected and len(player.channel.members) == 1 and not self.disconnect_timer:
+            self.disconnect_timer = True
+            self.playing_message.channel.send("`I will leave the voice channel in 1 minute if no one joins.`",
+                                              delete_after=60)
+            await asyncio.sleep(60)
+            if len(player.channel.members) == 1 and player.is_connected:
+                self.disconnect_timer = False
+                await player.stop()
+                await player.disconnect()
+                await player.reset_filters()
+                await self.playing_message.delete()
+                self.playing_message.channel.send("`I have left the voice channel because I was alone.`",
+                                                  delete_after=10)
+            else:
+                self.disconnect_timer = False
 
     @tasks.loop(seconds=5)
     async def update_playing_message(self):
@@ -165,7 +184,8 @@ class Music(commands.Cog):
                 else:
                     embed.add_field(name='Duration', value=f'{lavalink.utils.format_time(player.position)}/'
                                                            f'{lavalink.utils.format_time(player.current.duration)} '
-                                                           f'({int((player.position / player.current.duration) * 100)}%)',
+                                                           f'({int((player.position / player.current.duration) * 100)}'
+                                                           f'%)',
                                     inline=False)
                     embed.add_field(name='Progress', value=progress_bar(player), inline=False)
                 await self.playing_message.edit(embed=embed)
@@ -200,7 +220,7 @@ class Music(commands.Cog):
     async def cog_before_invoke(self, ctx: discord.ApplicationContext):
         """ Command before-invoke handler. """
         guild_check = ctx.guild is not None
-        #  This is essentially the same as `@commands.guild_only()`https://open.spotify.com/playlist/1ClDxtAGMAFMW703Kho976?si=f2a1ad4beece4aa9&pt=f1210a416eb21d822c9b83dc7d0d6092
+        #  This is essentially the same as `@commands.guild_only()`
         #  except it saves us repeating ourselves (and also a few lines).
 
         if guild_check:
@@ -263,6 +283,7 @@ class Music(commands.Cog):
             await asyncio.sleep(2.5)
             await self.playing_message.delete()
             self.playing_message = None
+            await event.player.reset_filters()
             await guild.voice_client.disconnect(force=True)
 
     @commands.slash_command(name="play", description="Play a song")
@@ -297,7 +318,7 @@ class Music(commands.Cog):
             for x in range(len(tracks)):
                 results = await player.node.get_tracks(f'ytsearch:{tracks[x]}')
                 if not results or not results.tracks:
-                    pass
+                    return
                 else:
                     track = results.tracks[0]
                     player.add(requester=ctx.author.id, track=track)
@@ -352,7 +373,8 @@ class Music(commands.Cog):
             await player.play()
             self.playing_message = await ctx.channel.send(embed=embed)
 
-    @commands.slash_command(name="playskip", description="Insert a song to the front of the queue and skip the current song")
+    @commands.slash_command(name="playskip", description="Insert a song to the front of the queue and skip the current"
+                                                         " song")
     async def playskip(self, ctx: discord.ApplicationContext, *, query: str):
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
         query = query.strip('<>')
@@ -413,7 +435,8 @@ class Music(commands.Cog):
         await ctx.respond(embed=embed, delete_after=10, ephemeral=True)
 
     @commands.slash_command(name="karaoke", description="Set the karaoke filter")
-    async def karaoke(self, ctx: discord.ApplicationContext, level: float, mono_level: float, filter_band: float, filter_width: float):
+    async def karaoke(self, ctx: discord.ApplicationContext, level: float, mono_level: float, filter_band: float,
+                      filter_width: float):
         """ Sets the karaoke filter. """
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
 
@@ -454,7 +477,7 @@ class Music(commands.Cog):
         embed = discord.Embed(color=discord.Color.blurple(), title='Timescale Filter')
 
         # If the speed is 1.0, then we can just disable the filter.
-        if speed == 1.0:
+        if speed == 1.0 and pitch == 1.0 and rate == 1.0:
             await player.remove_filter('timescale')
             embed.description = 'Disabled **Timescale Filter**'
             return await ctx.respond(embed=embed, delete_after=10, ephemeral=True)
@@ -502,9 +525,6 @@ class Music(commands.Cog):
             timescale.update(speed=0.8, pitch=0.8, rate=0.8)
             await player.set_filter(timescale)
             await ctx.respond(embed=embed, delete_after=10, ephemeral=True)
-            
-
-
 
     @commands.slash_command(name="reset", description="Clear all filters")
     async def reset(self, ctx: discord.ApplicationContext):
@@ -513,6 +533,8 @@ class Music(commands.Cog):
 
         # Remove all filters.
         await player.reset_filters()
+        self.Effect.nightcore = True
+        self.Effect.vaporwave = True
 
         embed = discord.Embed(color=discord.Color.blurple(), title='Reset Filters')
         embed.description = 'Removed all filters.'
@@ -653,7 +675,43 @@ class Music(commands.Cog):
         else:
             await ctx.respond("SponsorBlock has been disabled!", delete_after=5, ephemeral=True)
 
+    @commands.slash_command(name="nowplaying", description="Show the current song")
+    async def nowplaying(self, ctx: discord.ApplicationContext):
+        embed = discord.Embed(color=discord.Color.blurple())
+        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+        if not ctx.author.voice or (player.is_connected and ctx.author.voice.channel.id != int(player.channel_id)):
+            return await ctx.respond('You\'re not in my voice channel!', delete_after=5, ephemeral=True)
+        if not player.current:
+            return await ctx.respond('Nothing playing.', delete_after=5, ephemeral=True)
+        embed.title = f'Now Playing for {ctx.guild.name}'
+        embed.description = f'**Now Playing:** {player.current.title}'
+        embed.add_field(name=f"({player.current.title})[{player.current.uri}]", value=f"{player.current.author}", inline=False)
+        await ctx.respond(embed=embed, delete_after=15, ephemeral=True)
+
+    @commands.slash_command(name="clear", description="Clear the queue")
+    async def clear(self, ctx: discord.ApplicationContext):
+        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+        if not ctx.author.voice or (player.is_connected and ctx.author.voice.channel.id != int(player.channel_id)):
+            return await ctx.respond('You\'re not in my voice channel!', delete_after=5, ephemeral=True)
+        if not player.queue:
+            return await ctx.respond('Nothing queued.', delete_after=5, ephemeral=True)
+        player.queue.clear()
+        await ctx.respond(f'Queue cleared.', delete_after=5)
+
+    @commands.slash_command(name="remove", description="Remove a song from the queue")
+    async def remove(self, ctx: discord.ApplicationContext, index: int = None):
+        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+        if not ctx.author.voice or (player.is_connected and ctx.author.voice.channel.id != int(player.channel_id)):
+            return await ctx.respond('You\'re not in my voice channel!', delete_after=5, ephemeral=True)
+        if not player.queue:
+            return await ctx.respond('Nothing queued.', delete_after=5, ephemeral=True)
+        if index is None:
+            return await ctx.respond('No index provided.', delete_after=5, ephemeral=True)
+        if index > len(player.queue):
+            return await ctx.respond('Index out of range.', delete_after=5, ephemeral=True)
+        track = player.queue.pop(index)
+        await ctx.respond(f'Removed {track.title} from the queue.', delete_after=5)
+
 
 def setup(bot):
     bot.add_cog(Music(bot))
-    # register the slash commands
