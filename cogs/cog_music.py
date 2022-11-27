@@ -300,9 +300,7 @@ class Music(commands.Cog):
         # SoundCloud searching is possible by prefixing "scsearch:" instead.
         if not url_rx.match(query):
             query = f'ytsearch:{query}'
-            ########################################################################
-        elif query.startswith('https://open.spotify.com/playlist/'): # Fix this mf
-            ########################################################################
+        elif query.startswith('https://open.spotify.com/playlist/'):
             await ctx.respond("👍", delete_after=1, ephemeral=True)
             message = await ctx.send("Initializing Spotify wrapper... (0%)")
             # Spotify playlist support via spotipy
@@ -311,6 +309,7 @@ class Music(commands.Cog):
             # place all track names into a list
             tracks = []
             total_length = playlist['tracks']['total']
+            play_name = playlist['name']
             for item in playlist['tracks']['items']:
                 tracks.append(f"{item['track']['name']} - {item['track']['artists'][0]['name']}")
             while playlist['tracks']['next'] is not None:
@@ -323,18 +322,15 @@ class Music(commands.Cog):
                     break
                 elif round(len(tracks)/total_length*100) == 100:
                     break
-            print(len(tracks))
             for x in range(len(tracks)):
                 results = await player.node.get_tracks(f'ytsearch:{tracks[x]}')
-                await message.edit(content=f"Searching for tracks... ({round(x / len(tracks) * 100)}%)")
-                print(x / len(tracks) * 100)
+                if x % 10 == 0:
+                    await message.edit(content=f"Adding from {play_name}... ({round(x / len(tracks) * 100)}%)")
                 if not results or not results.tracks:
                     pass
                 else:
                     track = results.tracks[0]
                     player.add(requester=ctx.author.id, track=track)
-                if x % 10 == 0:
-                    await message.edit(content=f"Adding from {playlist['name']}... ({round(x / len(tracks) * 100)}%)")
                 if not player.is_playing:
                     await player.play()
                     self.playing_message = await ctx.channel.send(embed=discord.Embed(title="Now playing",
@@ -343,6 +339,7 @@ class Music(commands.Cog):
             await message.edit(content="Added Spotify playlist to queue.")
             await asyncio.sleep(5)
             await message.delete()
+            return True
 
         # Get the results for the query from Lavalink.
         results = await player.node.get_tracks(query)
