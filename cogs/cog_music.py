@@ -69,7 +69,7 @@ class LavalinkVoiceClient(discord.VoiceClient):
         }
         await self.lavalink.voice_update_handler(lavalink_data)
 
-    async def connect(self, *, timeout: float, reconnect: bool, self_deaf: bool = False,
+    async def connect(self, *, timeout: float, reconnect: bool, self_deaf: bool = True,
                       self_mute: bool = False) -> None:
         """
         Connect the bot to the voice channel and create a player_manager
@@ -131,22 +131,26 @@ class Music(commands.Cog):
     @tasks.loop(minutes=1)
     async def check_call(self):
         """Check the voice channel to see if the bot is the only one in the channel"""
-        player = self.bot.lavalink.player_manager.get(self.playing_message.guild.id)
-        if player.is_connected and len(player.channel.members) == 1 and not self.disconnect_timer:
-            self.disconnect_timer = True
-            self.playing_message.channel.send("`I will leave the voice channel in 1 minute if no one joins.`",
-                                              delete_after=60)
-            await asyncio.sleep(60)
-            if len(player.channel.members) == 1 and player.is_connected:
-                self.disconnect_timer = False
-                await player.stop()
-                await player.disconnect()
-                await player.reset_filters()
-                await self.playing_message.delete()
-                self.playing_message.channel.send("`I have left the voice channel because I was alone.`",
-                                                  delete_after=10)
-            else:
-                self.disconnect_timer = False
+        try:
+            player = self.bot.lavalink.player_manager.get(self.playing_message.guild.id)
+        except AttributeError:
+            return
+        else:
+            if player.is_connected and len(player.channel.members) == 1 and not self.disconnect_timer:
+                self.disconnect_timer = True
+                self.playing_message.channel.send("`I will leave the voice channel in 1 minute if no one joins.`",
+                                                  delete_after=60)
+                await asyncio.sleep(60)
+                if len(player.channel.members) == 1 and player.is_connected:
+                    self.disconnect_timer = False
+                    await player.stop()
+                    await player.disconnect()
+                    await player.reset_filters()
+                    await self.playing_message.delete()
+                    self.playing_message.channel.send("`I have left the voice channel because I was alone.`",
+                                                      delete_after=10)
+                else:
+                    self.disconnect_timer = False
 
     @tasks.loop(seconds=5)
     async def update_playing_message(self):
@@ -222,11 +226,9 @@ class Music(commands.Cog):
         guild_check = ctx.guild is not None
         #  This is essentially the same as `@commands.guild_only()`
         #  except it saves us repeating ourselves (and also a few lines).
-
         if guild_check:
             await self.ensure_voice(ctx)
             #  Ensure that the bot and command author share a mutual voice channel.
-
         return guild_check
 
     async def cog_command_error(self, ctx: discord.ApplicationContext, error):
@@ -298,7 +300,9 @@ class Music(commands.Cog):
         # SoundCloud searching is possible by prefixing "scsearch:" instead.
         if not url_rx.match(query):
             query = f'ytsearch:{query}'
-        elif query.startswith('https://open.spotify.com/playlist/'):
+            ########################################################################
+        elif query.startswith('https://open.spotify.com/playlist/'): # Fix this mf
+            ########################################################################
             await ctx.respond("👍", delete_after=1, ephemeral=True)
             message = await ctx.send("Initializing Spotify wrapper... (0%)")
             # Spotify playlist support via spotipy
@@ -306,6 +310,7 @@ class Music(commands.Cog):
             playlist = sp.playlist(query)
             # place all track names into a list
             tracks = []
+            total_length = playlist['tracks']['total']
             for item in playlist['tracks']['items']:
                 tracks.append(f"{item['track']['name']} - {item['track']['artists'][0]['name']}")
             while playlist['tracks']['next'] is not None:
@@ -313,12 +318,18 @@ class Music(commands.Cog):
                 # append all track names to the list
                 for item in playlist['items']:
                     tracks.append(f"{item['track']['name']} - {item['track']['artists'][0]['name']}")
+                    await message.edit(content=f"Initializing Spotify wrapper... ({round(len(tracks) / total_length * 100)}%)")
                 if playlist['next'] is None:
                     break
+                elif round(len(tracks)/total_length*100) == 100:
+                    break
+            print(len(tracks))
             for x in range(len(tracks)):
                 results = await player.node.get_tracks(f'ytsearch:{tracks[x]}')
+                await message.edit(content=f"Searching for tracks... ({round(x / len(tracks) * 100)}%)")
+                print(x / len(tracks) * 100)
                 if not results or not results.tracks:
-                    return
+                    pass
                 else:
                     track = results.tracks[0]
                     player.add(requester=ctx.author.id, track=track)
@@ -326,8 +337,9 @@ class Music(commands.Cog):
                     await message.edit(content=f"Adding from {playlist['name']}... ({round(x / len(tracks) * 100)}%)")
                 if not player.is_playing:
                     await player.play()
-                    embed = discord.Embed(title="Now playing", description=f"[{track.title}]({track.uri})")
-                    self.playing_message = await ctx.channel.send(embed=embed)
+                    self.playing_message = await ctx.channel.send(embed=discord.Embed(title="Now playing",
+                                                                                      description=f"[{track.title}]"
+                                                                                                  f"({track.uri})"))
             await message.edit(content="Added Spotify playlist to queue.")
             await asyncio.sleep(5)
             await message.delete()

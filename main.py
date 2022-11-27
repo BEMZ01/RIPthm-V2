@@ -15,8 +15,18 @@ SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_SECRET')
 
 guild_ids = [730859265249509386, ]
 bot = commands.Bot(debug_guilds=[730859265249509386])
-bot.load_extension("cogs.music")
+#bot = commands.Bot()
+# read extensions from cogs folder
+for filename in os.listdir('./cogs'):
+    if filename.endswith('.py') and filename.startswith('cog_'):
+        bot.load_extension(f'cogs.{filename[:-3]}')
+        print(f'Loaded {filename[:-3]}')
 sbClient = sb.Client()
+
+
+@bot.slash_command(name="ping", description="See the bot's latency")
+async def ping(ctx: discord.ApplicationContext):
+    await ctx.respond(f"Pong! ({bot.latency * 1000}ms)", delete_after=5)
 
 
 @bot.event
