@@ -21,8 +21,8 @@ SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
 SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_SECRET')
 url_rx = re.compile(r'https?://(?:www\.)?.+')
 guild_ids = [730859265249509386, ]
-sp = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials(client_id='2e9aefea9cd84435b704940989a286d1',
-                                                                         client_secret='d63cc21af5e948f484c6a63518a486de'))
+sp = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLIENT_ID,
+                                                                         client_secret=SPOTIFY_CLIENT_SECRET))
 sbClient = sb.Client()
 
 
@@ -796,39 +796,6 @@ class Music(commands.Cog):
             return await ctx.respond('Index out of range.', delete_after=5, ephemeral=True)
         track = player.queue.pop(index)
         await ctx.respond(f'Removed {track.title} from the queue.', delete_after=5)
-
-    @commands.slash_command(name="info", description="Display info on something")
-    @option("type", description="Type of info to display", choices=["playlist", "song", "Other"])
-    @option("query", description="Query to search for")
-    async def info(self, ctx: discord.ApplicationContext, type: str, query: str):
-        if type == "playlist":
-            if query.startswith('https://open.spotify.com/playlist/'):
-                await ctx.respond("👍 `Started import of Spotify to YouTube, please watch the next message for progress.`",
-                                  delete_after=10, ephemeral=True)
-                player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-                message = await ctx.send("Initializing Spotify wrapper... (0%)")
-                tracks, name = self.get_playlist_songs(query)
-                for track in tracks:
-                    query = f'ytsearch:{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
-                    if int(tracks.index(track)) % 10 == 0:
-                        embed = discord.Embed(color=discord.Color.blurple())
-                        embed.title = f'Importing Spotify playlist'
-                        embed.description = f'**Importing:** {name}'
-                        bar_length = 12
-                        progress = (tracks.index(track) / player.current.duration) * bar_length
-                        embed.add_field(name=f"Progress: {round((tracks.index(track) / len(tracks)) * 100, 2)}% ({tracks.index(track)}/{len(tracks)})",
-                                        value=f"{'🟩' * int(progress)}{'⬜' * int(bar_length - progress)}", inline=False)
-                        #🟩' * int(progress)}{'⬜
-                        await message.edit(embed=embed, content="")
-                    results = await player.node.get_tracks(query)
-                    if not results or not results['tracks']:
-                        continue
-                    track = results['tracks'][0]
-                    player.add(requester=ctx.author.id, track=track)
-                    pass
-                await message.edit(content="👍 `Finished import of Spotify to YouTube.`")
-                await asyncio.sleep(30)
-                await message.delete()
 
 
 
