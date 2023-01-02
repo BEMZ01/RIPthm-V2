@@ -17,8 +17,8 @@ from lavalink.filters import *
 import os
 
 load_dotenv()
-SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
-SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_SECRET')
+SPOTIFY_CLIENT_ID = str(os.getenv('SPOTIFY_CLIENT_ID'))
+SPOTIFY_CLIENT_SECRET = str(os.getenv('SPOTIFY_SECRET'))
 url_rx = re.compile(r'https?://(?:www\.)?.+')
 guild_ids = [730859265249509386, ]
 sp = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLIENT_ID,
@@ -88,6 +88,7 @@ class LavalinkVoiceClient(discord.VoiceClient):
                 player.store("VoiceStatus", "-1")
                 player.channel_id = None
                 self.cleanup()
+                player.queue.clear()
         elif player.fetch('VoiceState') == "0":
             player.store("VoiceState", None)
         await self.lavalink.voice_update_handler(lavalink_data)
