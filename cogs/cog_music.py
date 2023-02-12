@@ -1,13 +1,16 @@
 import asyncio
+import io
 import json
 import random
 import re
 from pprint import pprint
 from threading import Thread
-
+import aiohttp
 import discord
 import lavalink
+import lyricsgenius
 import spotipy
+from PIL import Image
 from discord import option
 from spotipy.oauth2 import SpotifyClientCredentials
 import sponsorblock as sb
@@ -141,6 +144,11 @@ class Music(commands.Cog):
         self.check_call.start()
         self.sponsorBlock = True
         self.Effect = Effect(True, True)
+        self.genius = lyricsgenius.Genius(os.getenv('GENIUS_TOKEN'))
+        self.genius.verbose = True
+        self.genius.remove_section_headers = True
+        self.genius.skip_non_songs = False
+        self.CP = None
         lavalink.add_event_hook(self.track_hook)
         bot.loop.create_task(self.connect())
 
@@ -194,6 +202,34 @@ class Music(commands.Cog):
                 self.playing_message = None
                 await player.stop()
                 player.store("VoiceStatus", "0")
+            title = re.sub(r'\([^)]*\)', '', player.current.title)
+            title = re.sub(r'\[[^)]*\]', '', title)
+            author = re.sub(r'\([^)]*\)', '', player.current.author)
+            author = re.sub(r'\[[^)]*\]', '', author)
+            if " - " in author:
+                author = author.split(" - ")[0]
+            if self.CP is None and player.is_playing:
+                print(f"Title: {title} Author: {author}")
+                if " - " in title:
+                    author = title.split(" - ")[0].split("&")[0]
+                    song = self.genius.search_song(title, author).to_dict()
+                else:
+                    song = self.genius.search_song(title, author).to_dict()
+                if song is None:
+                    self.CP = (None, player.current.title)
+                else:
+                    self.CP = (song, player.current.title)
+            if self.CP is not None and player.is_playing:
+                if self.CP[1] != player.current.title:
+                    if " - " in title:
+                        author = title.split(" - ")[0]
+                        song = self.genius.search_song(title, author).to_dict()
+                    else:
+                        song = self.genius.search_song(title, author).to_dict()
+                    if song is None:
+                        self.CP = (None, player.current.title)
+                    else:
+                        self.CP = (song, player.current.title)
         except AttributeError:
             pass
         if self.playing_message is None:
@@ -212,19 +248,23 @@ class Music(commands.Cog):
                     shuffle = "🔀"
                 else:
                     shuffle = ""
+                if self.CP is not None:
+                    color = await Generate_color(self.CP[0]['song_art_image_url'])
+                else:
+                    print(f"https://img.youtube.com/vi/{player.current.identifier}/hqdefault.jpg")
+                    color = await Generate_color(f"https://img.youtube.com/vi/{player.current.identifier}/hqdefault.jpg")
                 if player.paused:
                     embed = discord.Embed(title="Paused " + loop + " " + shuffle,
                                           description=f'[{player.current.title}]({player.current.uri})',
-                                          # generate random hex color
-                                          color=discord.Color.from_rgb(random.randint(0, 255),
-                                                                       random.randint(0, 255),
-                                                                       random.randint(0, 255)))
+                                          color=color)
                 else:
                     embed = discord.Embed(title="Now Playing " + loop + " " + shuffle,
                                           description=f'[{player.current.title}]({player.current.uri})',
-                                          color=discord.Color.from_rgb(random.randint(0, 255),
-                                                                       random.randint(0, 255),
-                                                                       random.randint(0, 255)))
+                                          color=color)
+                if self.CP is not None:
+                    embed.set_thumbnail(url=self.CP[0]['song_art_image_url'])
+                else:
+                    embed.set_thumbnail(url=f"https://img.youtube.com/vi/{player.current.identifier}/hqdefault.jpg")
                 if player.current is None:
                     return
                 else:
@@ -292,7 +332,7 @@ class Music(commands.Cog):
 
         # These are commands that require the bot to join a voice channel (i.e. initiating playback).
         # Commands such as volume/skip etc. don't require the bot to be in a voice channel so don't need listing here.
-        should_connect = ctx.command.name in ('play',)
+        should_connect = ctx.command.name in ('play', 'pirate')
         if should_connect:
             if not ctx.author.voice or not ctx.author.voice.channel:
                 # Our cog_command_error handler catches this and sends it to the voice channel.
@@ -377,13 +417,15 @@ class Music(commands.Cog):
             player = self.bot.lavalink.player_manager.get(ctx.guild.id)
             message = await ctx.send("Initializing Spotify wrapper... (0%)")
             tracks, name = self.get_playlist_songs(query)
+            playlist_info = sp.playlist(query)
             for track in tracks:
                 query = f'ytsearch:{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
                 if int(tracks.index(track)) % 10 == 0:
                     embed = discord.Embed(color=discord.Color.blurple())
                     embed.title = f'Importing Spotify playlist'
-                    embed.description = f'**Importing:** {name}'
-                    bar_length = int(round(len(name)/2))
+                    embed.description = f'**Importing:** {name} by {playlist_info["owner"]["display_name"]}'
+                    embed.set_thumbnail(url=playlist_info["images"][0]["url"])
+                    bar_length = 12
                     progress = (tracks.index(track) / len(tracks)) * bar_length
                     # progress bar using green and white square emojis
                     embed.add_field(
@@ -798,7 +840,103 @@ class Music(commands.Cog):
         track = player.queue.pop(index)
         await ctx.respond(f'Removed {track.title} from the queue.', delete_after=5)
 
+    @commands.slash_command(name="lyrics", description="Get the lyrics of the current song")
+    @option(name="song", description="The song to get the lyrics of", required=False)
+    async def lyrics(self, ctx: discord.ApplicationContext, song: str = None):
+        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+        if player.is_playing or song is not None:
+            if song is None:
+                song = player.current.title
+            song = re.sub(r'\([^)]*\)', '', song)
+            song = re.sub(r'\[[^)]*\]', '', song)
+            author = re.sub(r'\([^)]*\)', '', player.current.author)
+            author = re.sub(r'\[[^)]*\]', '', author)
+            if " - " in author:
+                author = author.split(" - ")[0]
+            if " - " in song:
+                author = song.split(" - ")[0]
+            song = self.genius.search_song(song, author).to_dict()
 
+            slyrics = re.sub(r'\[.*\]', '', re.sub(r'^.*\n', '', song['lyrics'])).replace('\n\n\n', '\n\n')
+            embed = discord.Embed(color=await Generate_color(song['song_art_image_url']), url=song['url'],
+                                  title=song['title'])
+            embed.description = f'**Lyrics:**\n {slyrics[0:2048]}'
+            embed.set_thumbnail(url=song['song_art_image_url'])
+            embed.set_author(name=song['primary_artist']['name'], url=song['primary_artist']['url'],
+                             icon_url=song['primary_artist']['image_url'])
+            embed.set_footer(text=f"Requested by {ctx.author.display_name}",
+                             icon_url=ctx.author.avatar.url)
+            await ctx.send(embed=embed)
+        else:
+            return await ctx.respond('Nothing playing.', delete_after=5, ephemeral=True)
+
+    @commands.slash_command(name="pirate", description="Add the pirate shanties playlist to the queue")
+    async def pirate(self, ctx: discord.ApplicationContext):
+        await ctx.respond(
+            "👍 `Started import of pirate shanties, please watch the next message for progress.`",
+            delete_after=10, ephemeral=True)
+        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+        message = await ctx.send("Initializing Spotify wrapper... (0%)")
+        tracks, name = self.get_playlist_songs(
+            "https://open.spotify.com/playlist/098Oij7Ia2mktRbbTkBK0X?si=e10a2ba7062e487e")
+        playlist_info = sp.playlist("https://open.spotify.com/playlist/098Oij7Ia2mktRbbTkBK0X?si=e10a2ba7062e487e")
+        for track in tracks:
+            query = f'ytsearch:{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
+            if int(tracks.index(track)) % 10 == 0:
+                embed = discord.Embed(color=discord.Color.blurple())
+                embed.title = f'Importing Spotify playlist'
+                embed.description = f'**Importing:** {name}'
+                bar_length = 12
+                progress = (tracks.index(track) / len(tracks)) * bar_length
+                # progress bar using green and white square emojis
+                embed.add_field(
+                    name=f"Progress: {round((tracks.index(track) / len(tracks)) * 100, 2)}% ({tracks.index(track)}/{len(tracks)})",
+                    # 🟩⬜
+                    value=f"{'🟩' * int(progress)}{'⬜' * (bar_length - int(progress))}")
+                # Add the image of the playlist cover to the embed
+                embed.set_thumbnail(url=playlist_info["images"][0]["url"])
+                await message.edit(embed=embed, content="")
+            results = await player.node.get_tracks(query)
+            if not results or not results['tracks']:
+                continue
+            track = results['tracks'][0]
+            player.add(requester=ctx.author.id, track=track)
+
+            if not player.is_playing:
+                await player.play()
+                embed = discord.Embed(color=discord.Color.blurple())
+                embed.title = f'Awaiting song information...'
+                self.playing_message = await ctx.channel.send(embed=embed)
+                #pass
+        await message.edit(content="👍 `Finished import of Spotify to YouTube.`", embed=None)
+        await asyncio.sleep(10)
+        await message.delete()
+        return True
+
+async def Generate_color(image_url):
+    """Generate a similar color to the album cover of the song.
+    :param image_url: The url of the album cover.
+    :return: The color of the album cover."""
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(image_url) as resp:
+            if resp.status != 200:
+                return discord.Color.blurple()
+            f = io.BytesIO(await resp.read())
+    image = Image.open(f)
+    # Get adverage color of the image
+    colors = image.getcolors(image.size[0] * image.size[1])
+    # Sort the colors by the amount of pixels and get the most common color
+    colors.sort(key=lambda x: x[0], reverse=True)
+    # Get the color of the most common color
+    color = colors[0][1]
+    try:
+        if len(color) != 3:
+            return discord.Color.blurple()
+    except TypeError:
+        return discord.Color.blurple()
+    # Convert the color to a discord color
+    return discord.Color.from_rgb(color[0], color[1], color[2])
 
 def setup(bot):
     bot.add_cog(Music(bot))

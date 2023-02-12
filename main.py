@@ -14,7 +14,9 @@ SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
 SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_SECRET')
 
 guild_ids = [730859265249509386, ]
-bot = commands.Bot(debug_guilds=[730859265249509386])
+intents = discord.Intents.default()
+intents.dm_messages = True
+bot = commands.Bot(debug_guilds=[730859265249509386], intents=intents)
 #bot = commands.Bot()
 # read extensions from cogs folder
 for filename in os.listdir('./cogs'):
@@ -36,4 +38,5 @@ async def on_ready():
 
 
 if __name__ == "__main__":
-    bot.run(TOKEN)
+    # Run the bot with DM message intents
+    bot.run(TOKEN, reconnect=True)

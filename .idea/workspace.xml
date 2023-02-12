@@ -4,9 +4,13 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="leaked my secret :/">
+    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="Clear Queue when bot is force kicked">
+      <change afterPath="$PROJECT_DIR$/cogs/cog_test.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cogs/cog_admin.py" beforeDir="false" afterPath="$PROJECT_DIR$/cogs/cog_admin.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/cogs/cog_music.py" beforeDir="false" afterPath="$PROJECT_DIR$/cogs/cog_music.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -172,7 +176,20 @@
       <workItem from="1672608754744" duration="2106000" />
       <workItem from="1672653482792" duration="15071000" />
       <workItem from="1672672288776" duration="822000" />
-      <workItem from="1672684954796" duration="1046000" />
+      <workItem from="1672684954796" duration="1806000" />
+      <workItem from="1672957967530" duration="723000" />
+      <workItem from="1673099404298" duration="20000" />
+      <workItem from="1673130496643" duration="8820000" />
+      <workItem from="1673190693838" duration="593000" />
+      <workItem from="1673347958691" duration="3042000" />
+      <workItem from="1673473536894" duration="600000" />
+      <workItem from="1673544070550" duration="25000" />
+      <workItem from="1673612800117" duration="299000" />
+      <workItem from="1674064027149" duration="154000" />
+      <workItem from="1674387146849" duration="597000" />
+      <workItem from="1676140161987" duration="9587000" />
+      <workItem from="1676196056035" duration="3815000" />
+      <workItem from="1676208010439" duration="3669000" />
     </task>
     <task id="LOCAL-00001" summary="Added code">
       <created>1665138238842</created>
@@ -300,7 +317,14 @@
       <option name="project" value="LOCAL" />
       <updated>1672672438104</updated>
     </task>
-    <option name="localTasksCounter" value="19" />
+    <task id="LOCAL-00019" summary="Clear Queue when bot is force kicked">
+      <created>1672686158770</created>
+      <option name="number" value="00019" />
+      <option name="presentableId" value="LOCAL-00019" />
+      <option name="project" value="LOCAL" />
+      <updated>1672686158770</updated>
+    </task>
+    <option name="localTasksCounter" value="20" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -336,10 +360,11 @@
     <MESSAGE value="Fixed :)" />
     <MESSAGE value="Actually fixed stuff now.&#10;Bot now admin-abusable (thanks benboom)" />
     <MESSAGE value="leaked my secret :/" />
-    <option name="LAST_COMMIT_MESSAGE" value="leaked my secret :/" />
+    <MESSAGE value="Clear Queue when bot is force kicked" />
+    <option name="LAST_COMMIT_MESSAGE" value="Clear Queue when bot is force kicked" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/RIPthm_V2$scratch.coverage" NAME="scratch Coverage Results" MODIFIED="1670695257354" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$APPLICATION_CONFIG_DIR$/scratches" />
-    <SUITE FILE_PATH="coverage/RIPthm_V2$main.coverage" NAME="main Coverage Results" MODIFIED="1672685738618" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/RIPthm_V2$main.coverage" NAME="main Coverage Results" MODIFIED="1676210712286" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

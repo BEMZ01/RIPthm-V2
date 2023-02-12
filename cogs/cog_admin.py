@@ -11,7 +11,7 @@ class Admin(commands.Cog):
 
     async def cog_before_invoke(self, ctx: discord.ApplicationContext):
         print(f'Command {ctx.command.name} invoked by {ctx.author} in guild {ctx.guild.name}')
-        if self.bot.is_owner(ctx.author):
+        if await self.bot.is_owner(ctx.author):
             return True
         else:
             await ctx.respond("This is a restricted command.", ephemeral=True, delete_after=15)
