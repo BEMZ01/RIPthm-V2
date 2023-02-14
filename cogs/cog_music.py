@@ -11,7 +11,8 @@ import lavalink
 import lyricsgenius
 import spotipy
 from PIL import Image
-from discord import option
+from discord import option, ButtonStyle
+from discord.ui import Button, View
 from spotipy.oauth2 import SpotifyClientCredentials
 import sponsorblock as sb
 from dotenv import load_dotenv
@@ -190,6 +191,80 @@ class Music(commands.Cog):
 
     @tasks.loop(seconds=5)
     async def update_playing_message(self):
+        async def play_callback(interaction):
+            await interaction.response.defer()
+            player = self.bot.lavalink.player_manager.get(interaction.guild.id)
+            if player.paused:
+                await player.set_pause(False)
+            else:
+                await player.set_pause(True)
+            #await interaction.channel.send(content=f"{'Paused' if player.paused else 'Resumed'} "
+            #                                       f"{player.current.title}", delete_after=10)
+            await self.update_playing_message()
+
+
+        async def skip_callback(interaction):
+            await interaction.response.defer()
+            player = self.bot.lavalink.player_manager.get(interaction.guild.id)
+            await player.skip()
+            #await interaction.channel.send(content=f"Skipped the song!", delete_after=10)
+            await self.update_playing_message()
+
+        async def stop_callback(interaction):
+            await interaction.response.defer()
+            player = self.bot.lavalink.player_manager.get(interaction.guild_id)
+
+            if not self.bot.get_channel(player.channel_id):
+                # We can't disconnect, if we're not connected.
+                return await interaction.channel.send('Not connected.', delete_after=10)
+
+            # check if the requester is in the same voice channel as the bot
+            if interaction.user.voice.channel != self.bot.get_channel(player.channel_id):
+                return await interaction.channel.send("You are not in the same voice channel as me.",
+                                                      delete_after=10)
+
+            # Clear the queue to ensure old tracks don't start playing
+            # when someone else queues something.
+            self.bot.lavalink.player_manager.get(interaction.guild_id).queue.clear()
+            # Stop the current track so Lavalink consumes less resources.
+            await self.bot.lavalink.player_manager.get(interaction.guild_id).stop()
+            for vc in self.bot.voice_clients:
+                if vc.guild == interaction.guild:
+                    await vc.disconnect()
+            try:
+                await self.playing_message.delete()
+                self.playing_message = None
+            except AttributeError:
+                pass
+            await interaction.channel.send('*⃣ | Disconnected.', delete_after=10)
+
+        async def shuffle_callback(interaction):
+            await interaction.response.defer()
+            player = self.bot.lavalink.player_manager.get(interaction.guild.id)
+            player.shuffle = not player.shuffle
+            #await interaction.channel.send(content=f"Shuffle is now {'enabled' if player.shuffle else 'disabled'}", delete_after=10)
+            await self.update_playing_message()
+
+        async def loop_callback(interaction):
+            await interaction.response.defer()
+            player = self.bot.lavalink.player_manager.get(interaction.guild.id)
+            if player.loop == player.LOOP_NONE:
+                player.loop = player.LOOP_SINGLE
+                #await interaction.channel.send(content=f"Looping {player.current.title}", delete_after=10)
+            elif player.loop == player.LOOP_SINGLE:
+                player.loop = player.LOOP_QUEUE
+                #await interaction.channel.send(content=f"Looping queue", delete_after=10)
+            elif player.loop == player.LOOP_QUEUE:
+                player.loop = player.LOOP_NONE
+                #await interaction.channel.send(content=f"Not looping", delete_after=10)
+            await self.update_playing_message()
+
+        async def sponsorBlock_callback(interaction):
+            await interaction.response.defer()
+            self.sponsorBlock = not self.sponsorBlock
+            #await interaction.channel.send(content=f"SponsorBlock is now {'enabled' if self.sponsorBlock else 'disabled'}.", delete_after=10)
+            await self.update_playing_message()
+
         try:
             player = self.bot.lavalink.player_manager.get(self.playing_message.guild.id)
             channel = self.bot.get_channel(player.fetch('VoiceChannel'))
@@ -258,9 +333,14 @@ class Music(commands.Cog):
                                           description=f'[{player.current.title}]({player.current.uri})',
                                           color=color)
                 else:
-                    embed = discord.Embed(title="Now Playing " + loop + " " + shuffle,
-                                          description=f'[{player.current.title}]({player.current.uri})',
-                                          color=color)
+                    try:
+                        embed = discord.Embed(title="Now Playing " + loop + " " + shuffle,
+                                              description=f'[{player.current.title}]({player.current.uri})',
+                                              color=color)
+                    except AttributeError:
+                        embed = discord.Embed(title="Now Playing " + loop + " " + shuffle,
+                                                description=f'[UNABLE TO GET TITLE]',
+                                                color=color)
                 if self.CP is not None:
                     embed.set_thumbnail(url=self.CP[0]['song_art_image_url'])
                 else:
@@ -274,7 +354,40 @@ class Music(commands.Cog):
                                                            f'%)',
                                     inline=False)
                     embed.add_field(name='Progress', value=progress_bar(player), inline=False)
-                await self.playing_message.edit(embed=embed)
+                buttons = []
+                if self.playing_message:
+                    player = self.bot.lavalink.player_manager.get(self.playing_message.guild.id)
+                else:
+                    return []
+                buttons = []
+                if player.paused:
+                    buttons.append([Button(style=ButtonStyle.red, emoji="▶️", custom_id="play"), "play"])
+                else:
+                    buttons.append([Button(style=ButtonStyle.green, emoji="⏸️", custom_id="play"), "play"])
+                buttons.append([Button(style=ButtonStyle.grey, emoji="⏭️", custom_id="skip"), "skip"])
+                buttons.append([Button(style=ButtonStyle.grey, emoji="⏹️", custom_id="stop"), "stop"])
+                if player.shuffle:
+                    buttons.append([Button(style=ButtonStyle.green, emoji="🔀", custom_id="shuffle"), "shuffle"])
+                else:
+                    buttons.append([Button(style=ButtonStyle.red, emoji="🔀", custom_id="shuffle"), "shuffle"])
+                if player.loop == player.LOOP_NONE:
+                    buttons.append([Button(style=ButtonStyle.red, emoji="🔂", custom_id="loop"), "loop"])
+                elif player.loop == player.LOOP_SINGLE:
+                    buttons.append([Button(style=ButtonStyle.green, emoji="🔂", custom_id="loop"), "loop"])
+                elif player.loop == player.LOOP_QUEUE:
+                    buttons.append([Button(style=ButtonStyle.green, emoji="🔁", custom_id="loop"), "loop"])
+                if self.sponsorBlock:
+                    buttons.append(
+                        [Button(style=ButtonStyle.green, emoji="🚫", custom_id="sponsorBlock"), "sponsorBlock"])
+                else:
+                    buttons.append([Button(style=ButtonStyle.red, emoji="🚫", custom_id="sponsorBlock"), "sponsorBlock"])
+                view = discord.ui.View()
+                for button in buttons:
+                    # add the callback to the button
+                    button[0].callback = locals()[f"{button[1]}_callback"]
+                    view.add_item(button[0])
+                #await self.playing_message.channel.send("Test", view=view)
+                await self.playing_message.edit("", embed=embed, view=view)
 
     @tasks.loop(seconds=1)
     async def test_vid(self):
@@ -401,6 +514,7 @@ class Music(commands.Cog):
     @commands.slash_command(name="play", description="Play a song")
     async def play(self, ctx: discord.ApplicationContext, *, query: str):
         """ Searches and plays a song from a given query. """
+        await ctx.defer()
         # Get the player for this guild from cache.
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
         # Remove leading and trailing <>. <> may be used to suppress embedding links in Discord.
@@ -417,11 +531,17 @@ class Music(commands.Cog):
             player = self.bot.lavalink.player_manager.get(ctx.guild.id)
             message = await ctx.send("Initializing Spotify wrapper... (0%)")
             tracks, name = self.get_playlist_songs(query)
-            playlist_info = sp.playlist(query)
+            try:
+                playlist_info = sp.playlist(query)
+            except spotipy.SpotifyException:
+                await ctx.respond("👎 `Failed to import Spotify playlist.`\n"
+                                  "The playlist might be private.", ephemeral=True, delete_after=10)
+                await message.delete()
+                return
             for track in tracks:
                 query = f'ytsearch:{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
                 if int(tracks.index(track)) % 10 == 0:
-                    embed = discord.Embed(color=discord.Color.blurple())
+                    embed = discord.Embed(color=await Generate_color(playlist_info["images"][0]["url"]))
                     embed.title = f'Importing Spotify playlist'
                     embed.description = f'**Importing:** {name} by {playlist_info["owner"]["display_name"]}'
                     embed.set_thumbnail(url=playlist_info["images"][0]["url"])
@@ -448,7 +568,6 @@ class Music(commands.Cog):
             await message.edit(content="👍 `Finished import of Spotify to YouTube.`", embed=None)
             await asyncio.sleep(10)
             await message.delete()
-
             return True
 
         # Get the results for the query from Lavalink.
@@ -459,7 +578,7 @@ class Music(commands.Cog):
         if not results or not results.tracks:
             return await ctx.respond('Nothing found!', delete_after=10, ephemeral=True)
 
-        embed = discord.Embed(color=discord.Color.blurple())
+        embed = discord.Embed(color=discord.Color.blurple(), title="Awaiting song information...")
 
         # Valid loadTypes are:
         #   TRACK_LOADED    - single video/direct URL
@@ -469,22 +588,14 @@ class Music(commands.Cog):
         #   LOAD_FAILED     - most likely, the video encountered an exception during loading.
         if results.load_type == 'PLAYLIST_LOADED':
             tracks = results.tracks
-
             for track in tracks:
                 # Add all the tracks from the playlist to the queue.
                 player.add(requester=ctx.author.id, track=track)
-
-            embed.title = 'Playlist Enqueued!'
-            embed.description = f'{results.playlist_info.name} - {len(tracks)} tracks'
         else:
             track = results.tracks[0]
-            embed.title = 'Track Enqueued'
-            embed.description = f'[{track.title}]({track.uri})'
             player.add(requester=ctx.author.id, track=track)
-
         # send thumbs up
         await ctx.respond("Enqueued song", delete_after=1, ephemeral=True)
-
         # We don't want to call .play() if the player is playing as that will effectively skip
         # the current track.
         if not player.is_playing or player.fetch('VoiceState') in ['-1', '0']:
@@ -492,7 +603,11 @@ class Music(commands.Cog):
             self.playing_message = await ctx.channel.send(embed=embed)
 
     def get_playlist_songs(self, playlist):
-        playlist = sp.playlist(playlist)
+        try:
+            playlist = sp.playlist(playlist)
+        except Exception as e:
+            print(e)
+            return False, e
         tracks = playlist['tracks']
         songs = tracks['items']
         while tracks['next']:
@@ -500,34 +615,6 @@ class Music(commands.Cog):
             for item in tracks['items']:
                 songs.append(item)
         return songs, playlist['name']
-
-    @commands.slash_command(name="playskip", description="Insert a song to the front of the queue and skip the current"
-                                                         " song")
-    async def playskip(self, ctx: discord.ApplicationContext, *, query: str):
-        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-        query = query.strip('<>')
-        if not url_rx.match(query):
-            query = f'ytsearch:{query}'
-        else:
-            await ctx.respond("Use `/play` to add playlists to the queue", delete_after=10, ephemeral=True)
-            return
-        results = await player.node.get_tracks(query)
-        if not results or not results.tracks:
-            return await ctx.respond('Nothing found!', delete_after=10, ephemeral=True)
-        embed = discord.Embed(color=discord.Color.blurple())
-        if results.load_type == 'PLAYLIST_LOADED':
-            await ctx.respond("Use `/play` to add playlists to the queue", delete_after=10, ephemeral=True)
-        else:
-            track = results.tracks[0]
-            embed.title = 'Now Playing'
-            embed.description = f'[{track.title}]({track.uri})'
-            player.add(requester=ctx.author.id, track=track, index=0)
-        await ctx.respond("", delete_after=1, ephemeral=True, embed=embed)
-        if not player.is_playing:
-            await player.play()
-            self.playing_message = await ctx.channel.send(embed=embed)
-        else:
-            await player.skip()
 
     @commands.slash_command(name="lowpass", description="Set the lowpass filter strength")
     async def lowpass(self, ctx: discord.ApplicationContext, strength: float):
@@ -907,7 +994,7 @@ class Music(commands.Cog):
                 embed = discord.Embed(color=discord.Color.blurple())
                 embed.title = f'Awaiting song information...'
                 self.playing_message = await ctx.channel.send(embed=embed)
-                #pass
+                player.set_shuffle(True)
         await message.edit(content="👍 `Finished import of Spotify to YouTube.`", embed=None)
         await asyncio.sleep(10)
         await message.delete()
