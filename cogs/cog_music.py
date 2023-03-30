@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import io
 import json
 import random
@@ -198,8 +199,6 @@ class Music(commands.Cog):
                 await player.set_pause(False)
             else:
                 await player.set_pause(True)
-            #await interaction.channel.send(content=f"{'Paused' if player.paused else 'Resumed'} "
-            #                                       f"{player.current.title}", delete_after=10)
             await self.update_playing_message()
 
 
@@ -207,26 +206,17 @@ class Music(commands.Cog):
             await interaction.response.defer()
             player = self.bot.lavalink.player_manager.get(interaction.guild.id)
             await player.skip()
-            #await interaction.channel.send(content=f"Skipped the song!", delete_after=10)
             await self.update_playing_message()
 
         async def stop_callback(interaction):
             await interaction.response.defer()
             player = self.bot.lavalink.player_manager.get(interaction.guild_id)
-
             if not self.bot.get_channel(player.channel_id):
-                # We can't disconnect, if we're not connected.
                 return await interaction.channel.send('Not connected.', delete_after=10)
-
-            # check if the requester is in the same voice channel as the bot
             if interaction.user.voice.channel != self.bot.get_channel(player.channel_id):
                 return await interaction.channel.send("You are not in the same voice channel as me.",
                                                       delete_after=10)
-
-            # Clear the queue to ensure old tracks don't start playing
-            # when someone else queues something.
             self.bot.lavalink.player_manager.get(interaction.guild_id).queue.clear()
-            # Stop the current track so Lavalink consumes less resources.
             await self.bot.lavalink.player_manager.get(interaction.guild_id).stop()
             for vc in self.bot.voice_clients:
                 if vc.guild == interaction.guild:
@@ -242,7 +232,6 @@ class Music(commands.Cog):
             await interaction.response.defer()
             player = self.bot.lavalink.player_manager.get(interaction.guild.id)
             player.shuffle = not player.shuffle
-            #await interaction.channel.send(content=f"Shuffle is now {'enabled' if player.shuffle else 'disabled'}", delete_after=10)
             await self.update_playing_message()
 
         async def loop_callback(interaction):
@@ -250,19 +239,15 @@ class Music(commands.Cog):
             player = self.bot.lavalink.player_manager.get(interaction.guild.id)
             if player.loop == player.LOOP_NONE:
                 player.loop = player.LOOP_SINGLE
-                #await interaction.channel.send(content=f"Looping {player.current.title}", delete_after=10)
             elif player.loop == player.LOOP_SINGLE:
                 player.loop = player.LOOP_QUEUE
-                #await interaction.channel.send(content=f"Looping queue", delete_after=10)
             elif player.loop == player.LOOP_QUEUE:
                 player.loop = player.LOOP_NONE
-                #await interaction.channel.send(content=f"Not looping", delete_after=10)
             await self.update_playing_message()
 
         async def sponsorBlock_callback(interaction):
             await interaction.response.defer()
             self.sponsorBlock = not self.sponsorBlock
-            #await interaction.channel.send(content=f"SponsorBlock is now {'enabled' if self.sponsorBlock else 'disabled'}.", delete_after=10)
             await self.update_playing_message()
 
         try:
@@ -858,7 +843,7 @@ class Music(commands.Cog):
         embed.description = f'**Now Playing:** {player.current.title}'
         # top 10 songs in queue
         for track in player.queue[:10]:
-            embed.add_field(name=f"({track.title})[{track.uri}]", value=f"{track.author}", inline=False)
+            embed.add_field(name=f"[{track.title}]({track.uri})", value=f"{track.author}", inline=False)
         await ctx.respond(embed=embed, delete_after=15, ephemeral=True)
 
     @commands.slash_command(name="shuffle", description="Shuffle the queue")
@@ -978,7 +963,6 @@ class Music(commands.Cog):
                 # progress bar using green and white square emojis
                 embed.add_field(
                     name=f"Progress: {round((tracks.index(track) / len(tracks)) * 100, 2)}% ({tracks.index(track)}/{len(tracks)})",
-                    # 🟩⬜
                     value=f"{'🟩' * int(progress)}{'⬜' * (bar_length - int(progress))}")
                 # Add the image of the playlist cover to the embed
                 embed.set_thumbnail(url=playlist_info["images"][0]["url"])
