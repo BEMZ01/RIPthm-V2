@@ -4,17 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="Minor Adjustments">
-      <change afterPath="$PROJECT_DIR$/.cache" afterDir="false" />
+    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="Major Adjustments">
       <change afterPath="$PROJECT_DIR$/.env" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/deployment.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/logs/spring.log" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/logs/spring.log.2022-11-19.0.gz" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/RIPthm2.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/RIPthm2.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cogs/cog_music.py" beforeDir="false" afterPath="$PROJECT_DIR$/cogs/cog_music.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -206,7 +197,7 @@
       <workItem from="1683901867900" duration="38000" />
       <workItem from="1683904476707" duration="311000" />
       <workItem from="1684515574245" duration="902000" />
-      <workItem from="1689321214779" duration="8857000" />
+      <workItem from="1689321214779" duration="9173000" />
     </task>
     <task id="LOCAL-00001" summary="Added code">
       <created>1665138238842</created>
@@ -362,7 +353,15 @@
       <option name="project" value="LOCAL" />
       <updated>1680219064641</updated>
     </task>
-    <option name="localTasksCounter" value="23" />
+    <task id="LOCAL-00023" summary="Major Adjustments">
+      <option name="closed" value="true" />
+      <created>1689331786910</created>
+      <option name="number" value="00023" />
+      <option name="presentableId" value="LOCAL-00023" />
+      <option name="project" value="LOCAL" />
+      <updated>1689331786910</updated>
+    </task>
+    <option name="localTasksCounter" value="24" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -402,10 +401,11 @@
     <MESSAGE value="MAJOR UPDATE" />
     <MESSAGE value="buttons?!?!?!" />
     <MESSAGE value="Minor Adjustments" />
-    <option name="LAST_COMMIT_MESSAGE" value="Minor Adjustments" />
+    <MESSAGE value="Major Adjustments" />
+    <option name="LAST_COMMIT_MESSAGE" value="Major Adjustments" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/RIPthm_V2$main.coverage" NAME="main Coverage Results" MODIFIED="1689329037093" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/RIPthm_V2$main.coverage" NAME="main Coverage Results" MODIFIED="1689331650477" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/RIPthm_V2$scratch.coverage" NAME="scratch Coverage Results" MODIFIED="1670695257354" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$APPLICATION_CONFIG_DIR$/scratches" />
   </component>
 </project>
