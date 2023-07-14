@@ -151,6 +151,7 @@ class Music(commands.Cog):
         self.genius.remove_section_headers = True
         self.genius.skip_non_songs = False
         self.CP = None
+        self.stop_import = False
         lavalink.add_event_hook(self.track_hook)
         bot.loop.create_task(self.connect())
 
@@ -163,7 +164,7 @@ class Music(commands.Cog):
             self.bot.lavalink.add_node('raspberrypi.local', 2333, os.getenv("LAVA_TOKEN"), 'eu',
                                        'default-node')
 
-    @tasks.loop(minutes=1)
+    @tasks.loop(seconds=30)
     async def check_call(self):
         """Check the voice channel to see if the bot is the only one in the channel"""
         try:
@@ -171,21 +172,25 @@ class Music(commands.Cog):
             channel = self.bot.get_channel(player.fetch('VoiceChannel'))
             client = channel.guild.voice_client
         except AttributeError:
-            return
+            print("check call AttributeError")
+            pass
         else:
-            # if the player is connected and the bot is the only one in the channel
-            if player.is_connected and len(channel.members) == 1:
+            # if the player is connected and the bot is the only one in the channel (not counting other bots and itself)
+            print(len([member for member in channel.members if not member.bot]))
+            if player.is_connected and len([member for member in channel.members if not member.bot]) == 0 and not self.disconnect_timer:
                 self.disconnect_timer = True
-                await self.playing_message.channel.send("`I will leave the voice channel in 1 minute if no one joins.`",
+                await self.playing_message.channel.send("`I will leave the voice channel in 30 seconds if no one joins.`",
                                                         delete_after=60)
-                await asyncio.sleep(60)
-                if len(channel.members) == 1 and player.is_connected:
+                await asyncio.sleep(30)
+                if player.is_connected and len([member for member in channel.members if not member.bot]) == 0 and self.disconnect_timer:
                     self.disconnect_timer = False
-                    await player.stop()
+                    self.stop_import = True
+                    await player.set_pause(True)
                     await client.disconnect(force=True)
                     await player.reset_filters()
                     await self.playing_message.delete()
-                    await self.playing_message.channel.send("`I have left the voice channel because I was alone.`",
+                    await self.playing_message.channel.send("`I have left the voice channel because I was alone.`\n"
+                                                            "Unpause the music with `/pause`",
                                                               delete_after=10)
                 else:
                     self.disconnect_timer = False
@@ -216,6 +221,7 @@ class Music(commands.Cog):
             if interaction.user.voice.channel != self.bot.get_channel(player.channel_id):
                 return await interaction.channel.send("You are not in the same voice channel as me.",
                                                       delete_after=10)
+            self.stop_import = True
             self.bot.lavalink.player_manager.get(interaction.guild_id).queue.clear()
             await self.bot.lavalink.player_manager.get(interaction.guild_id).stop()
             for vc in self.bot.voice_clients:
@@ -238,10 +244,10 @@ class Music(commands.Cog):
             await interaction.response.defer()
             player = self.bot.lavalink.player_manager.get(interaction.guild.id)
             if player.loop == player.LOOP_NONE:
-                player.loop = player.LOOP_SINGLE
-            elif player.loop == player.LOOP_SINGLE:
                 player.loop = player.LOOP_QUEUE
             elif player.loop == player.LOOP_QUEUE:
+                player.loop = player.LOOP_SINGLE
+            elif player.loop == player.LOOP_SINGLE:
                 player.loop = player.LOOP_NONE
             await self.update_playing_message()
 
@@ -255,6 +261,7 @@ class Music(commands.Cog):
             channel = self.bot.get_channel(player.fetch('VoiceChannel'))
             client = channel.guild.voice_client
             if player.fetch('VoiceStatus') == "-1": # We have been kicked from the channel
+                self.stop_import = True
                 await self.playing_message.channel.send("`I have been kicked from the voice channel.`\n||Something "
                                                         "something use the disconnect command and stop admin abuse :(||",
                                                         delete_after=10)
@@ -264,32 +271,34 @@ class Music(commands.Cog):
                 player.store("VoiceStatus", "0")
             title = re.sub(r'\([^)]*\)', '', player.current.title)
             title = re.sub(r'\[[^)]*\]', '', title)
-            author = re.sub(r'\([^)]*\)', '', player.current.author)
-            author = re.sub(r'\[[^)]*\]', '', author)
-            if " - " in author:
-                author = author.split(" - ")[0]
-            if self.CP is None and player.is_playing:
-                print(f"Title: {title} Author: {author}")
-                if " - " in title:
-                    author = title.split(" - ")[0].split("&")[0]
-                    song = self.genius.search_song(title, author).to_dict()
-                else:
-                    song = self.genius.search_song(title, author).to_dict()
-                if song is None:
-                    self.CP = (None, player.current.title)
-                else:
-                    self.CP = (song, player.current.title)
-            if self.CP is not None and player.is_playing:
-                if self.CP[1] != player.current.title:
-                    if " - " in title:
-                        author = title.split(" - ")[0]
-                        song = self.genius.search_song(title, author).to_dict()
-                    else:
-                        song = self.genius.search_song(title, author).to_dict()
-                    if song is None:
-                        self.CP = (None, player.current.title)
-                    else:
-                        self.CP = (song, player.current.title)
+            title = title.lower()
+            title_blacklist = ["lyrics", "lyric", "official", "video", "audio", "music", "full", "hd", "hq", "remix",
+                               "ost", "theme", "original", "version"]
+            for word in title_blacklist:
+                title = title.replace(word, "")
+            title = title.strip()
+            if " - " in title:
+                title = title.split(" - ")
+                author = title[0]
+                title = title[1]
+            elif "by" in title:
+                title = title.split("by")
+                author = title[1]
+                title = title[0]
+            elif " | " in title:
+                title = title.split(" | ")
+                author = title[0]
+                title = title[1]
+            else:
+                author = None
+            if player.current.author.contains("VEVO"):
+                author = player.current.author.replace("VEVO", "")
+            print(f"Raw: {player.current.title}\nTitle: {title}\nAuthor: {author}")
+            song = self.genius.search_song(title, author).to_dict()
+            if song is None:
+                self.CP = (None, player.current.title)
+            else:
+                self.CP = (song, player.current.title)
         except AttributeError:
             pass
         if self.playing_message is None:
@@ -311,7 +320,6 @@ class Music(commands.Cog):
                 if self.CP is not None:
                     color = await Generate_color(self.CP[0]['song_art_image_url'])
                 else:
-                    print(f"https://img.youtube.com/vi/{player.current.identifier}/hqdefault.jpg")
                     color = await Generate_color(f"https://img.youtube.com/vi/{player.current.identifier}/hqdefault.jpg")
                 if player.paused:
                     embed = discord.Embed(title="Paused " + loop + " " + shuffle,
@@ -371,8 +379,11 @@ class Music(commands.Cog):
                     # add the callback to the button
                     button[0].callback = locals()[f"{button[1]}_callback"]
                     view.add_item(button[0])
-                #await self.playing_message.channel.send("Test", view=view)
-                await self.playing_message.edit("", embed=embed, view=view)
+                try:
+                    await self.playing_message.edit("", embed=embed, view=view)
+                except discord.errors.NotFound:
+                    print("Message not found, creating new one")
+                    self.playing_message = await self.playing_message.channel.send("", embed=embed, view=view)
 
     @tasks.loop(seconds=1)
     async def test_vid(self):
@@ -497,7 +508,9 @@ class Music(commands.Cog):
         await ctx.respond(f'Joined {channel.name}', ephemeral=True)
 
     @commands.slash_command(name="play", description="Play a song")
-    async def play(self, ctx: discord.ApplicationContext, *, query: str):
+    @option(name="query", description="The song to play.", required=True)
+    @option(name="shuffle", description="Shuffle the queue.", required=False)
+    async def play(self, ctx: discord.ApplicationContext, *, query: str, shuffle: bool = False):
         """ Searches and plays a song from a given query. """
         await ctx.defer()
         # Get the player for this guild from cache.
@@ -509,21 +522,31 @@ class Music(commands.Cog):
         # SoundCloud searching is possible by prefixing "scsearch:" instead.
         if not url_rx.match(query):
             query = f'ytsearch:{query}'
-        elif query.startswith('https://open.spotify.com/playlist/'):
+        elif query.startswith('https://open.spotify.com/playlist/') or query.startswith("https://open.spotify.com/album/"):
             await ctx.respond(
                 "👍 `Started import of Spotify to YouTube, please watch the next message for progress.`",
                 delete_after=10, ephemeral=True)
             player = self.bot.lavalink.player_manager.get(ctx.guild.id)
             message = await ctx.send("Initializing Spotify wrapper... (0%)")
             tracks, name = self.get_playlist_songs(query)
+            if shuffle:
+                random.shuffle(tracks)
             try:
-                playlist_info = sp.playlist(query)
-            except spotipy.SpotifyException:
-                await ctx.respond("👎 `Failed to import Spotify playlist.`\n"
+                if "/album/" in query:
+                    playlist_info = sp.album(query)
+                elif "/playlist/" in query:
+                    playlist_info = sp.playlist(query)
+            except spotipy.SpotifyException as e:
+                await ctx.respond(f"👎 `Failed to import Spotify playlist. ({e})`\n"
                                   "The playlist might be private.", ephemeral=True, delete_after=10)
                 await message.delete()
                 return
             for track in tracks:
+                if self.stop_import:
+                    await ctx.respond("👍 `Stopped importing Spotify playlist.`", ephemeral=True, delete_after=10)
+                    await message.delete()
+                    self.stop_import = False
+                    return
                 query = f'ytsearch:{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
                 if int(tracks.index(track)) % 10 == 0:
                     embed = discord.Embed(color=await Generate_color(playlist_info["images"][0]["url"]))
@@ -563,7 +586,7 @@ class Music(commands.Cog):
         if not results or not results.tracks:
             return await ctx.respond('Nothing found!', delete_after=10, ephemeral=True)
 
-        embed = discord.Embed(color=discord.Color.blurple(), title="Awaiting song information...")
+        embed = discord.Embed(color=discord.Color.blurple(), title="Fetching song information...")
 
         # Valid loadTypes are:
         #   TRACK_LOADED    - single video/direct URL
@@ -755,6 +778,7 @@ class Music(commands.Cog):
             # may not disconnect the bot.
             return await ctx.respond('You\'re not in my voice channel!', delete_after=10, ephemeral=True)
 
+        self.stop_import = True
         # Clear the queue to ensure old tracks don't start playing
         # when someone else queues something.
         player.queue.clear()
@@ -797,12 +821,12 @@ class Music(commands.Cog):
             return await ctx.respond('You\'re not in my voice channel!', delete_after=5, ephemeral=True)
         if type is None:
             if player.loop == player.LOOP_NONE:
-                player.loop = player.LOOP_SINGLE
-                await ctx.respond(f"Looping {player.current.title}.", delete_after=5)
-            elif player.loop == player.LOOP_SINGLE:
                 player.loop = player.LOOP_QUEUE
                 await ctx.respond("Looping the queue.", delete_after=5)
             elif player.loop == player.LOOP_QUEUE:
+                player.loop = player.LOOP_SINGLE
+                await ctx.respond(f"Looping {player.current.title}.", delete_after=5)
+            elif player.loop == player.LOOP_SINGLE:
                 player.loop = player.LOOP_NONE
                 await ctx.respond('No longer looping.', delete_after=5)
         elif type in ["single", "song", "track"]:
@@ -891,6 +915,7 @@ class Music(commands.Cog):
     @commands.slash_command(name="clear", description="Clear the queue")
     async def clear(self, ctx: discord.ApplicationContext):
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+        self.stop_import = True
         if not ctx.author.voice or (player.is_connected and ctx.author.voice.channel.id != int(player.channel_id)):
             return await ctx.respond('You\'re not in my voice channel!', delete_after=5, ephemeral=True)
         if not player.queue:
@@ -943,7 +968,8 @@ class Music(commands.Cog):
             return await ctx.respond('Nothing playing.', delete_after=5, ephemeral=True)
 
     @commands.slash_command(name="pirate", description="Add the pirate shanties playlist to the queue")
-    async def pirate(self, ctx: discord.ApplicationContext):
+    @option(name="shuffle", description="Shuffle the playlist", required=False)
+    async def pirate(self, ctx: discord.ApplicationContext, shuffle: bool = False):
         await ctx.respond(
             "👍 `Started import of pirate shanties, please watch the next message for progress.`",
             delete_after=10, ephemeral=True)
@@ -951,8 +977,15 @@ class Music(commands.Cog):
         message = await ctx.send("Initializing Spotify wrapper... (0%)")
         tracks, name = self.get_playlist_songs(
             "https://open.spotify.com/playlist/098Oij7Ia2mktRbbTkBK0X?si=e10a2ba7062e487e")
+        if shuffle:
+            random.shuffle(tracks)
         playlist_info = sp.playlist("https://open.spotify.com/playlist/098Oij7Ia2mktRbbTkBK0X?si=e10a2ba7062e487e")
         for track in tracks:
+            if self.stop_import:
+                await ctx.respond("👍 `Stopped importing Spotify playlist.`", ephemeral=True, delete_after=10)
+                await message.delete()
+                self.stop_import = False
+                return
             query = f'ytsearch:{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
             if int(tracks.index(track)) % 10 == 0:
                 embed = discord.Embed(color=discord.Color.blurple())
@@ -984,6 +1017,24 @@ class Music(commands.Cog):
         await message.delete()
         return True
 
+    @commands.slash_command(name="clean", description="Cleanup spam in any channel")
+    @commands.has_permissions(manage_messages=True)
+    async def clean(self, ctx: discord.ApplicationContext, amount: int = 100):
+        await ctx.respond(f"👍 `Cleaning {amount} messages, please wait.`", delete_after=10, ephemeral=True)
+        self.stop_import = True
+        await ctx.channel.purge(limit=amount, check=lambda m: m.author == ctx.bot.user)
+
+    @commands.slash_command(name="display", description="Lost the display message? Use this command to get it back.")
+    async def display(self, ctx: discord.ApplicationContext):
+        if self.bot.lavalink.player_manager.get(ctx.guild.id).is_playing:
+            await ctx.respond("👍 `Sending display message...`", delete_after=10, ephemeral=True)
+            embed = discord.Embed(color=discord.Color.blurple())
+            embed.title = f'Fetching song information...'
+            self.playing_message = await ctx.channel.send(embed=embed)
+            await self.update_playing_message(ctx)
+        else:
+            return await ctx.respond('Nothing playing.', delete_after=5, ephemeral=True)
+
 async def Generate_color(image_url):
     """Generate a similar color to the album cover of the song.
     :param image_url: The url of the album cover.
@@ -1002,7 +1053,7 @@ async def Generate_color(image_url):
     # Get the color of the most common color
     color = colors[0][1]
     try:
-        if len(color) != 3:
+        if len(color) < 3:
             return discord.Color.blurple()
     except TypeError:
         return discord.Color.blurple()
