@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from discord.ext import commands, tasks
 from lavalink.filters import *
 import os
+from copy import deepcopy
 
 load_dotenv()
 SPOTIFY_CLIENT_ID = str(os.getenv('SPOTIFY_CLIENT_ID'))
@@ -486,7 +487,11 @@ class Music(commands.Cog):
                 pass
             finally:
                 self.playing_message = None
-            await guild.voice_client.disconnect(force=True)
+            try:
+                await guild.voice_client.disconnect(force=True)
+            except AttributeError:
+                # We are already disconnected.
+                pass
 
     @commands.slash_command(name="join", description="Joins the voice channel you are in.")
     @option(name="channel", description="The voice channel to join.", required=False)
@@ -547,11 +552,18 @@ class Music(commands.Cog):
                     await message.delete()
                     self.stop_import = False
                     return
-                query = f'ytsearch:{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
-                if int(tracks.index(track)) % 10 == 0:
-                    embed = discord.Embed(color=await Generate_color(playlist_info["images"][0]["url"]))
-                    embed.title = f'Importing Spotify playlist'
-                    embed.description = f'**Importing:** {name} by {playlist_info["owner"]["display_name"]}'
+                if "/album/" in query:
+                    squery = f'ytsearch:{track["name"]} {track["artists"][0]["name"]}'
+                elif "/playlist/" in query:
+                    squery = f'ytsearch:{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
+                if int(tracks.index(track)) % 5 == 0:
+                    embed = discord.Embed(color=await Generate_color(str(playlist_info["images"][0]["url"])))
+                    if "/album/" in query:
+                        embed.title = f'Importing Spotify album: {name}'
+                        embed.description = f'**Importing:** {name} by {playlist_info["artists"][0]["name"]}'
+                    elif "/playlist/" in query:
+                        embed.title = f'Importing Spotify playlist: {name}'
+                        embed.description = f'**Importing:** {name} by {playlist_info["owner"]["display_name"]}'
                     embed.set_thumbnail(url=playlist_info["images"][0]["url"])
                     bar_length = 12
                     progress = (tracks.index(track) / len(tracks)) * bar_length
@@ -561,7 +573,7 @@ class Music(commands.Cog):
                         #🟩⬜
                         value=f"{'🟩' * int(progress)}{'⬜' * (bar_length - int(progress))}")
                     await message.edit(embed=embed, content="")
-                results = await player.node.get_tracks(query)
+                results = await player.node.get_tracks(squery)
                 if not results or not results['tracks']:
                     continue
                 track = results['tracks'][0]
@@ -612,17 +624,26 @@ class Music(commands.Cog):
 
     def get_playlist_songs(self, playlist):
         try:
-            playlist = sp.playlist(playlist)
+            if "/album/" in playlist:
+                playlist_info = sp.album(playlist)
+            elif "/playlist/" in playlist:
+                playlist_info = sp.playlist(playlist)
+            else:
+                return False, "Not a playlist or album"
         except Exception as e:
             print(e)
             return False, e
-        tracks = playlist['tracks']
-        songs = tracks['items']
-        while tracks['next']:
-            tracks = sp.next(tracks)
-            for item in tracks['items']:
-                songs.append(item)
-        return songs, playlist['name']
+        songs = deepcopy(playlist_info['tracks']['items'])
+        print(playlist_info['tracks'])
+        if not playlist_info['tracks']['next']:
+            return songs, str(playlist_info['name'])
+        else:
+            while playlist_info['tracks']['next']:
+                playlist_info['tracks'] = sp.next(playlist['tracks'])
+                for item in playlist_info['tracks']['items']:
+                    songs.append(item)
+                    print(item['track']['name'], item['track']['artists'][0]['name'], item['track']['id'])
+            return songs, playlist_info['name']
 
     @commands.slash_command(name="lowpass", description="Set the lowpass filter strength")
     async def lowpass(self, ctx: discord.ApplicationContext, strength: float):
@@ -986,8 +1007,9 @@ class Music(commands.Cog):
                 await message.delete()
                 self.stop_import = False
                 return
+            print(f'Importing {track["track"]["name"]} by {track["track"]["artists"][0]["name"]}')
             query = f'ytsearch:{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
-            if int(tracks.index(track)) % 10 == 0:
+            if int(tracks.index(track)) % 5 == 0:
                 embed = discord.Embed(color=discord.Color.blurple())
                 embed.title = f'Importing Spotify playlist'
                 embed.description = f'**Importing:** {name}'
