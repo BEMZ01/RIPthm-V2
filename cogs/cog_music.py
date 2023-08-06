@@ -26,7 +26,6 @@ load_dotenv()
 SPOTIFY_CLIENT_ID = str(os.getenv('SPOTIFY_CLIENT_ID'))
 SPOTIFY_CLIENT_SECRET = str(os.getenv('SPOTIFY_SECRET'))
 url_rx = re.compile(r'https?://(?:www\.)?.+')
-guild_ids = [730859265249509386, ]
 sp = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLIENT_ID,
                                                                          client_secret=SPOTIFY_CLIENT_SECRET))
 sbClient = sb.Client()
@@ -634,7 +633,6 @@ class Music(commands.Cog):
             print(e)
             return False, e
         songs = deepcopy(playlist_info['tracks']['items'])
-        print(playlist_info['tracks'])
         if not playlist_info['tracks']['next']:
             return songs, str(playlist_info['name'])
         else:
@@ -642,7 +640,6 @@ class Music(commands.Cog):
                 playlist_info['tracks'] = sp.next(playlist['tracks'])
                 for item in playlist_info['tracks']['items']:
                     songs.append(item)
-                    print(item['track']['name'], item['track']['artists'][0]['name'], item['track']['id'])
             return songs, playlist_info['name']
 
     @commands.slash_command(name="lowpass", description="Set the lowpass filter strength")
@@ -784,8 +781,7 @@ class Music(commands.Cog):
         embed.description = 'Removed all filters.'
         await ctx.respond(embed=embed, delete_after=10, ephemeral=True)
 
-    @commands.slash_command(name="disconnect", description="Disconnect the bot from the voice channel",
-                            guild_ids=guild_ids)
+    @commands.slash_command(name="disconnect", description="Disconnect the bot from the voice channel",)
     async def disconnect(self, ctx: discord.ApplicationContext):
         """ Disconnects the player from the voice channel and clears its queue. """
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
@@ -814,8 +810,7 @@ class Music(commands.Cog):
             pass
         await ctx.respond('*⃣ | Disconnected.', delete_after=10, ephemeral=True)
 
-    @commands.slash_command(name="pause", description="Pause/resume the current song", aliases=['resume'],
-                            guild_ids=guild_ids)
+    @commands.slash_command(name="pause", description="Pause/resume the current song", aliases=['resume'])
     async def pause(self, ctx: discord.ApplicationContext):
         """ Pauses the current track. """
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
@@ -1007,7 +1002,6 @@ class Music(commands.Cog):
                 await message.delete()
                 self.stop_import = False
                 return
-            print(f'Importing {track["track"]["name"]} by {track["track"]["artists"][0]["name"]}')
             query = f'ytsearch:{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
             if int(tracks.index(track)) % 5 == 0:
                 embed = discord.Embed(color=discord.Color.blurple())
