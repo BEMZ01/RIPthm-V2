@@ -13,6 +13,7 @@ import lyricsgenius
 import spotipy
 from PIL import Image
 from discord import option, ButtonStyle
+from discord.ext.pages import Paginator
 from discord.ui import Button, View
 from spotipy.oauth2 import SpotifyClientCredentials
 import sponsorblock as sb
@@ -519,8 +520,6 @@ class Music(commands.Cog):
         await ctx.defer()
         # Get the player for this guild from cache.
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-        # Remove leading and trailing <>. <> may be used to suppress embedding links in Discord.
-        query = query.strip('<>')
 
         # Check if the user input might be a URL. If it isn't, we can Lavalink do a YouTube search for it instead.
         # SoundCloud searching is possible by prefixing "scsearch:" instead.
@@ -531,8 +530,8 @@ class Music(commands.Cog):
                 "👍 `Started import of Spotify to YouTube, please watch the next message for progress.`",
                 delete_after=10, ephemeral=True)
             player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-            message = await ctx.send("Initializing Spotify wrapper... (0%)")
-            tracks, name = self.get_playlist_songs(query)
+            message = await ctx.send("🔁")
+            tracks, name = await self.get_playlist_songs(query)
             if shuffle:
                 random.shuffle(tracks)
             try:
@@ -621,7 +620,7 @@ class Music(commands.Cog):
             await player.play()
             self.playing_message = await ctx.channel.send(embed=embed)
 
-    def get_playlist_songs(self, playlist):
+    async def get_playlist_songs(self, playlist):
         try:
             if "/album/" in playlist:
                 playlist_info = sp.album(playlist)
@@ -637,9 +636,10 @@ class Music(commands.Cog):
             return songs, str(playlist_info['name'])
         else:
             while playlist_info['tracks']['next']:
-                playlist_info['tracks'] = sp.next(playlist['tracks'])
-                for item in playlist_info['tracks']['items']:
-                    songs.append(item)
+                playlist_info['tracks'] = sp.next(playlist_info['tracks'])
+                songs.extend(playlist_info['tracks']['items'])
+                if self.stop_import:
+                    return False, "Stopped"
             return songs, playlist_info['name']
 
     @commands.slash_command(name="lowpass", description="Set the lowpass filter strength")
@@ -871,20 +871,26 @@ class Music(commands.Cog):
         await ctx.respond(f'Volume set to **{volume}**', delete_after=5)
 
     @commands.slash_command(name="queue", description="Show the queue")
-    async def queue(self, ctx: discord.ApplicationContext):
-        """ Shows the player's queue. """
+    @option(name="limit", description="The amount of songs to show", required=False)
+    async def queue(self, ctx: discord.ApplicationContext, limit: int = 10):
+        await ctx.defer()
+        """ Shows the player's queue. in a paginator response"""
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
         if not ctx.author.voice or (player.is_connected and ctx.author.voice.channel.id != int(player.channel_id)):
-            return await ctx.respond('You\'re not in my voice channel!', delete_after=5, ephemeral=True)
+            return await ctx.respond('You\'re not in my voice channel!', delete_after=10, ephemeral=True)
         if not player.queue:
-            return await ctx.respond('Nothing queued.', delete_after=5, ephemeral=True)
-        embed = discord.Embed(color=discord.Color.blurple())
-        embed.title = f'Queue for {ctx.guild.name}'
-        embed.description = f'**Now Playing:** {player.current.title}'
-        # top 10 songs in queue
-        for track in player.queue[:10]:
-            embed.add_field(name=f"[{track.title}]({track.uri})", value=f"{track.author}", inline=False)
-        await ctx.respond(embed=embed, delete_after=15, ephemeral=True)
+            return await ctx.respond('Nothing queued.', delete_after=10, ephemeral=True)
+        embed_data = {
+            "title": f"Queue for {ctx.guild.name}",
+            "description": f"Showing {limit} songs."
+        }
+        print("Generating pages")
+        now_playing = {"title": player.current.title, "thumb": player.current.uri, "author": player.current.author}
+        name = ctx.author.display_name
+        pages = paginator(items=player.queue, embed_data=embed_data, per_page=limit, current_info=now_playing, author=name)
+        print("Sending pages")
+        page_iterator = Paginator(pages=pages, loop_pages=True)
+        await page_iterator.respond(ctx.interaction)
 
     @commands.slash_command(name="shuffle", description="Shuffle the queue")
     async def shuffle(self, ctx: discord.ApplicationContext):
@@ -991,7 +997,7 @@ class Music(commands.Cog):
             delete_after=10, ephemeral=True)
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
         message = await ctx.send("Initializing Spotify wrapper... (0%)")
-        tracks, name = self.get_playlist_songs(
+        tracks, name = await self.get_playlist_songs(
             "https://open.spotify.com/playlist/098Oij7Ia2mktRbbTkBK0X?si=e10a2ba7062e487e")
         if shuffle:
             random.shuffle(tracks)
@@ -1075,6 +1081,39 @@ async def Generate_color(image_url):
         return discord.Color.blurple()
     # Convert the color to a discord color
     return discord.Color.from_rgb(color[0], color[1], color[2])
+
+def paginator(items, embed_data, author: str, current_info: dict, per_page=10, hard_limit=100):
+        """This function builds a complete list of embeds for the paginator.
+        :param per_page: The amount of items per page.
+        :param embed_data: The data for the embeds.
+        :param items: The list to insert for the embeds.
+        :param hard_limit: The hard limit of items to paginate.
+        :param author: The username of the user who requested the queue.
+        :param current_info: The current song info dict.
+        :return: A list of embeds."""
+        pages = []
+        # Split the list into chunks of 10
+        chunks = [items[i:i + per_page] for i in range(0, len(items), per_page)]
+        # Check if the amount of chunks is larger than the hard limit
+        if len(chunks) > hard_limit:
+            # If it is, then we will just return the first 100 pages
+            chunks = chunks[:hard_limit]
+        # Loop through the chunks
+        index = 1
+        for chunk in chunks:
+            print(f"Generating page {index}/{len(chunks)}")
+            # Create a new embed
+            embed = discord.Embed(**embed_data)
+            embed.description = f"Currently playing: {current_info['title']}\nFor more info use /nowplaying"
+            embed.set_footer(text=f"Requested by {author}")
+            # Add the items to the embed
+            for item in chunk:
+                print(f"\tAdding item {chunk.index(item)}")
+                embed.add_field(name=f"{index}. {item.title}", value=f"{item.author} [Source Video]({item.uri})", inline=False)
+                index += 1
+            # Add the embed to the pages
+            pages.append(embed)
+        return pages
 
 def setup(bot):
     bot.add_cog(Music(bot))
