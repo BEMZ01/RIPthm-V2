@@ -1,8 +1,26 @@
 import os
 from pprint import pprint
-
 import discord
 from discord.ext import commands
+
+DBUS_FOUND = True
+try:
+    import dbus
+except ImportError:
+    print("dbus not found, this could be a windows system. Ignoring...")
+    DBUS_FOUND = False
+    pass
+
+PROJECT_NAME = "Ripthm"
+
+
+def restart_service():
+    if not DBUS_FOUND:
+        return
+    bus = dbus.SystemBus()
+    systemd1 = bus.get_object('org.freedesktop.systemd1', '/org/freedesktop/systemd1')
+    manager = dbus.Interface(systemd1, 'org.freedesktop.systemd1.Manager')
+    manager.RestartUnit(f'{PROJECT_NAME}.service', 'replace')
 
 
 class Admin(commands.Cog):
@@ -48,15 +66,14 @@ class Admin(commands.Cog):
     @discord.slash_command(name="restart", description="Restart the bot")
     async def restart(self, ctx):
         await ctx.respond("Restarting...")
-        await self.bot.close()
-        os.system("python main.py")
+        restart_service()
 
     @discord.slash_command(name="update", description="Update the bot")
     async def update(self, ctx):
         await ctx.respond("Updating...")
         await self.bot.close()
         os.system("git pull")
-        os.system("python main.py")
+        restart_service()
 
 
 def setup(bot):

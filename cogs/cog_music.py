@@ -129,6 +129,7 @@ class LavalinkVoiceClient(discord.VoiceClient):
         player.channel_id = None
         self.cleanup()
 
+
 def progress_bar(player):
     # This is a helper function that generates a progress bar for the currently playing track.
     # It's not necessary for the cog to function, but it's a nice touch.
@@ -160,7 +161,7 @@ class Music(commands.Cog):
         await self.bot.wait_until_ready()
         if not hasattr(self.bot, 'lavalink'):  # This ensures the client isn't overwritten during cog reloads.
             self.bot.lavalink = lavalink.Client(self.bot.user.id)
-            #self.bot.lavalink.add_node('84.66.67.45', 2333, os.getenv("LAVA_TOKEN"), 'eu',
+            # self.bot.lavalink.add_node('84.66.67.45', 2333, os.getenv("LAVA_TOKEN"), 'eu',
             #                           'default-node')
             self.bot.lavalink.add_node('raspberrypi.local', 2333, os.getenv("LAVA_TOKEN"), 'eu',
                                        'default-node')
@@ -178,12 +179,15 @@ class Music(commands.Cog):
         else:
             # if the player is connected and the bot is the only one in the channel (not counting other bots and itself)
             print(len([member for member in channel.members if not member.bot]))
-            if player.is_connected and len([member for member in channel.members if not member.bot]) == 0 and not self.disconnect_timer:
+            if player.is_connected and len(
+                    [member for member in channel.members if not member.bot]) == 0 and not self.disconnect_timer:
                 self.disconnect_timer = True
-                await self.playing_message.channel.send("`I will leave the voice channel in 30 seconds if no one joins.`",
-                                                        delete_after=60)
+                await self.playing_message.channel.send(
+                    "`I will leave the voice channel in 30 seconds if no one joins.`",
+                    delete_after=60)
                 await asyncio.sleep(30)
-                if player.is_connected and len([member for member in channel.members if not member.bot]) == 0 and self.disconnect_timer:
+                if player.is_connected and len(
+                        [member for member in channel.members if not member.bot]) == 0 and self.disconnect_timer:
                     self.disconnect_timer = False
                     self.stop_import = True
                     await player.set_pause(True)
@@ -192,7 +196,7 @@ class Music(commands.Cog):
                     await self.playing_message.delete()
                     await self.playing_message.channel.send("`I have left the voice channel because I was alone.`\n"
                                                             "Unpause the music with `/pause`",
-                                                              delete_after=10)
+                                                            delete_after=10)
                 else:
                     self.disconnect_timer = False
 
@@ -206,7 +210,6 @@ class Music(commands.Cog):
             else:
                 await player.set_pause(True)
             await self.update_playing_message()
-
 
         async def skip_callback(interaction):
             await interaction.response.defer()
@@ -261,7 +264,7 @@ class Music(commands.Cog):
             player = self.bot.lavalink.player_manager.get(self.playing_message.guild.id)
             channel = self.bot.get_channel(player.fetch('VoiceChannel'))
             client = channel.guild.voice_client
-            if player.fetch('VoiceStatus') == "-1": # We have been kicked from the channel
+            if player.fetch('VoiceStatus') == "-1":  # We have been kicked from the channel
                 self.stop_import = True
                 await self.playing_message.channel.send("`I have been kicked from the voice channel.`\n||Something "
                                                         "something use the disconnect command and stop admin abuse :(||",
@@ -321,7 +324,8 @@ class Music(commands.Cog):
                 if self.CP is not None:
                     color = await Generate_color(self.CP[0]['song_art_image_url'])
                 else:
-                    color = await Generate_color(f"https://img.youtube.com/vi/{player.current.identifier}/hqdefault.jpg")
+                    color = await Generate_color(
+                        f"https://img.youtube.com/vi/{player.current.identifier}/hqdefault.jpg")
                 if player.paused:
                     embed = discord.Embed(title="Paused " + loop + " " + shuffle,
                                           description=f'[{player.current.title}]({player.current.uri})',
@@ -333,8 +337,8 @@ class Music(commands.Cog):
                                               color=color)
                     except AttributeError:
                         embed = discord.Embed(title="Now Playing " + loop + " " + shuffle,
-                                                description=f'[UNABLE TO GET TITLE]',
-                                                color=color)
+                                              description=f'[UNABLE TO GET TITLE]',
+                                              color=color)
                 if self.CP is not None:
                     embed.set_thumbnail(url=self.CP[0]['song_art_image_url'])
                 else:
@@ -525,7 +529,8 @@ class Music(commands.Cog):
         # SoundCloud searching is possible by prefixing "scsearch:" instead.
         if not url_rx.match(query):
             query = f'ytsearch:{query}'
-        elif query.startswith('https://open.spotify.com/playlist/') or query.startswith("https://open.spotify.com/album/"):
+        elif query.startswith('https://open.spotify.com/playlist/') or query.startswith(
+                "https://open.spotify.com/album/"):
             await ctx.respond(
                 "👍 `Started import of Spotify to YouTube, please watch the next message for progress.`",
                 delete_after=10, ephemeral=True)
@@ -568,7 +573,7 @@ class Music(commands.Cog):
                     # progress bar using green and white square emojis
                     embed.add_field(
                         name=f"Progress: {round((tracks.index(track) / len(tracks)) * 100, 2)}% ({tracks.index(track)}/{len(tracks)})",
-                        #🟩⬜
+                        # 🟩⬜
                         value=f"{'🟩' * int(progress)}{'⬜' * (bar_length - int(progress))}")
                     await message.edit(embed=embed, content="")
                 results = await player.node.get_tracks(squery)
@@ -781,7 +786,7 @@ class Music(commands.Cog):
         embed.description = 'Removed all filters.'
         await ctx.respond(embed=embed, delete_after=10, ephemeral=True)
 
-    @commands.slash_command(name="disconnect", description="Disconnect the bot from the voice channel",)
+    @commands.slash_command(name="disconnect", description="Disconnect the bot from the voice channel", )
     async def disconnect(self, ctx: discord.ApplicationContext):
         """ Disconnects the player from the voice channel and clears its queue. """
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
@@ -887,7 +892,8 @@ class Music(commands.Cog):
         print("Generating pages")
         now_playing = {"title": player.current.title, "thumb": player.current.uri, "author": player.current.author}
         name = ctx.author.display_name
-        pages = paginator(items=player.queue, embed_data=embed_data, per_page=limit, current_info=now_playing, author=name)
+        pages = paginator(items=player.queue, embed_data=embed_data, per_page=limit, current_info=now_playing,
+                          author=name)
         print("Sending pages")
         page_iterator = Paginator(pages=pages, loop_pages=True)
         await page_iterator.respond(ctx.interaction)
@@ -931,7 +937,8 @@ class Music(commands.Cog):
             return await ctx.respond('Nothing playing.', delete_after=5, ephemeral=True)
         embed.title = f'Now Playing for {ctx.guild.name}'
         embed.description = f'**Now Playing:** {player.current.title}'
-        embed.add_field(name=f"({player.current.title})[{player.current.uri}]", value=f"{player.current.author}", inline=False)
+        embed.add_field(name=f"({player.current.title})[{player.current.uri}]", value=f"{player.current.author}",
+                        inline=False)
         await ctx.respond(embed=embed, delete_after=15, ephemeral=True)
 
     @commands.slash_command(name="clear", description="Clear the queue")
@@ -1027,14 +1034,13 @@ class Music(commands.Cog):
                 continue
             track = results['tracks'][0]
             player.add(requester=ctx.author.id, track=track)
-
             if not player.is_playing:
                 await player.play()
                 embed = discord.Embed(color=discord.Color.blurple())
                 embed.title = f'Awaiting song information...'
                 self.playing_message = await ctx.channel.send(embed=embed)
                 player.set_shuffle(True)
-        await message.edit(content="👍 `Finished import of Spotify to YouTube.`", embed=None)
+        await message.edit(content=f"👍 `Finished import of {name}`", embed=None)
         await asyncio.sleep(10)
         await message.delete()
         return True
@@ -1056,6 +1062,7 @@ class Music(commands.Cog):
             await self.update_playing_message(ctx)
         else:
             return await ctx.respond('Nothing playing.', delete_after=5, ephemeral=True)
+
 
 async def Generate_color(image_url):
     """Generate a similar color to the album cover of the song.
@@ -1082,8 +1089,9 @@ async def Generate_color(image_url):
     # Convert the color to a discord color
     return discord.Color.from_rgb(color[0], color[1], color[2])
 
+
 def paginator(items, embed_data, author: str, current_info: dict, per_page=10, hard_limit=100):
-        """This function builds a complete list of embeds for the paginator.
+    """This function builds a complete list of embeds for the paginator.
         :param per_page: The amount of items per page.
         :param embed_data: The data for the embeds.
         :param items: The list to insert for the embeds.
@@ -1091,29 +1099,31 @@ def paginator(items, embed_data, author: str, current_info: dict, per_page=10, h
         :param author: The username of the user who requested the queue.
         :param current_info: The current song info dict.
         :return: A list of embeds."""
-        pages = []
-        # Split the list into chunks of 10
-        chunks = [items[i:i + per_page] for i in range(0, len(items), per_page)]
-        # Check if the amount of chunks is larger than the hard limit
-        if len(chunks) > hard_limit:
-            # If it is, then we will just return the first 100 pages
-            chunks = chunks[:hard_limit]
-        # Loop through the chunks
-        index = 1
-        for chunk in chunks:
-            print(f"Generating page {index}/{len(chunks)}")
-            # Create a new embed
-            embed = discord.Embed(**embed_data)
-            embed.description = f"Currently playing: {current_info['title']}\nFor more info use /nowplaying"
-            embed.set_footer(text=f"Requested by {author}")
-            # Add the items to the embed
-            for item in chunk:
-                print(f"\tAdding item {chunk.index(item)}")
-                embed.add_field(name=f"{index}. {item.title}", value=f"{item.author} [Source Video]({item.uri})", inline=False)
-                index += 1
-            # Add the embed to the pages
-            pages.append(embed)
-        return pages
+    pages = []
+    # Split the list into chunks of 10
+    chunks = [items[i:i + per_page] for i in range(0, len(items), per_page)]
+    # Check if the amount of chunks is larger than the hard limit
+    if len(chunks) > hard_limit:
+        # If it is, then we will just return the first 100 pages
+        chunks = chunks[:hard_limit]
+    # Loop through the chunks
+    index = 1
+    for chunk in chunks:
+        print(f"Generating page {index}/{len(chunks)}")
+        # Create a new embed
+        embed = discord.Embed(**embed_data)
+        embed.description = f"Currently playing: {current_info['title']}\nFor more info use /nowplaying"
+        embed.set_footer(text=f"Requested by {author}")
+        # Add the items to the embed
+        for item in chunk:
+            print(f"\tAdding item {chunk.index(item)}")
+            embed.add_field(name=f"{index}. {item.title}", value=f"{item.author} [Source Video]({item.uri})",
+                            inline=False)
+            index += 1
+        # Add the embed to the pages
+        pages.append(embed)
+    return pages
+
 
 def setup(bot):
     bot.add_cog(Music(bot))
