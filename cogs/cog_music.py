@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import io
 import json
+import logging
 import random
 import re
 from pprint import pprint
@@ -15,6 +16,7 @@ from PIL import Image
 from discord import option, ButtonStyle
 from discord.ext.pages import Paginator
 from discord.ui import Button, View
+from lavalink import LoadType
 from spotipy.oauth2 import SpotifyClientCredentials
 import sponsorblock as sb
 from dotenv import load_dotenv
@@ -30,6 +32,8 @@ url_rx = re.compile(r'https?://(?:www\.)?.+')
 sp = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLIENT_ID,
                                                                          client_secret=SPOTIFY_CLIENT_SECRET))
 sbClient = sb.Client()
+
+logger = logging.getLogger(__name__)
 
 
 class Effect:
@@ -73,7 +77,7 @@ class LavalinkVoiceClient(discord.VoiceClient):
             player = self.lavalink.player_manager.get(self.client.voice_clients[0].channel.guild.id)
             if player.fetch('VoiceChannel') is not None:
                 player.store('VoiceChannel', self.client.voice_clients[0].channel.id)
-                print("I've been moved to a new channel. Updating variables...")
+                logger.info("I've been moved to a new channel. Updating variables...")
         except KeyError:
             return
         await self.lavalink.voice_update_handler(lavalink_data)
@@ -90,7 +94,7 @@ class LavalinkVoiceClient(discord.VoiceClient):
         # Test if bot has been kicked
         if int(data['user_id']) == int(self.client.user.id) and player.is_playing:
             if data['channel_id'] is None:
-                print("I've been kicked from a channel.")
+                logger.info("I've been kicked from a channel.")
                 player.store("VoiceStatus", "-1")
                 player.channel_id = None
                 self.cleanup()
@@ -138,6 +142,18 @@ def progress_bar(player):
     return f"[{'🟩' * int(progress)}{'⬜' * (bar_length - int(progress))}]"
 
 
+def birthday_easteregg(userID):
+    # read from a csv file
+    with open("birthdays.csv", "r") as file:
+        data = file.read()
+    data = data.split("\n")
+    for line in data:
+        line = line.split(",")
+        if line[2] == str(userID):
+            return {"name": line[0], "date": line[1], "id": line[2]}
+    return {"name": None, "date": None, "id": None}
+
+
 class Music(commands.Cog):
     def __init__(self, bot):
         self.disconnect_timer = False
@@ -154,17 +170,49 @@ class Music(commands.Cog):
         self.genius.skip_non_songs = False
         self.CP = None
         self.stop_import = False
-        lavalink.add_event_hook(self.track_hook)
         bot.loop.create_task(self.connect())
 
     async def connect(self):
         await self.bot.wait_until_ready()
         if not hasattr(self.bot, 'lavalink'):  # This ensures the client isn't overwritten during cog reloads.
             self.bot.lavalink = lavalink.Client(self.bot.user.id)
-            # self.bot.lavalink.add_node('84.66.67.45', 2333, os.getenv("LAVA_TOKEN"), 'eu',
+            #self.bot.lavalink.add_node('192.168.1.235', 2333, os.getenv("LAVA_TOKEN"), 'eu',
             #                           'default-node')
-            self.bot.lavalink.add_node('raspberrypi.local', 2333, os.getenv("LAVA_TOKEN"), 'eu',
+            self.bot.lavalink.add_node(os.getenv("LAVA_ADDR"), int(os.getenv("LAVA_PORT")), os.getenv("LAVA_TOKEN"), 'eu',
                                        'default-node')
+            self.bot.lavalink.add_event_hook(self.track_hook)
+            # try to complete a test search
+            results = await self.bot.lavalink.get_tracks("ytsearch:Test")
+            if not results or not results['tracks']:
+                print("Lavalink failed to connect.")
+                return
+            else:
+                print("Lavalink connected.")
+        else:
+            print("Lavalink already connected.")
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        # attempt to find old playing message
+        for guild in self.bot.guilds:
+            # search for a message with the embed title "Now Playing" that was sent by the bot and delete it
+            for channel in guild.text_channels:
+                try:
+                    async for message in channel.history(limit=200):
+                        if message.author == self.bot.user and message.embeds:
+                            if message.embeds[0].title == "Now Playing":
+                                await message.delete()
+                                logger.info(f"Found old playing message in {guild.name}")
+                except discord.errors.Forbidden:
+                    pass
+            print(f"Connected to {guild.name}")
+        print(f"Connected to Discord as {self.bot.user}")
+
+    async def cog_command_error(self, ctx: commands.Context, error: commands.CommandError):
+        if isinstance(error, commands.CommandInvokeError):
+            embed = discord.Embed(title="Error", description=f"```{error.original}```", color=discord.Color.red())
+            logger.error(f"Error in {ctx.command.name}: {error.original}")
+            await ctx.respond(embed=embed, ephemeral=True, delete_after=10)
 
     @tasks.loop(seconds=30)
     async def check_call(self):
@@ -174,11 +222,12 @@ class Music(commands.Cog):
             channel = self.bot.get_channel(player.fetch('VoiceChannel'))
             client = channel.guild.voice_client
         except AttributeError:
-            print("check call AttributeError")
+            logger.warning("check_call AttributeError")
             pass
         else:
             # if the player is connected and the bot is the only one in the channel (not counting other bots and itself)
-            print(len([member for member in channel.members if not member.bot]))
+            logger.debug(
+                f'There are {len([member for member in channel.members if not member.bot])} members in the vc.')
             if player.is_connected and len(
                     [member for member in channel.members if not member.bot]) == 0 and not self.disconnect_timer:
                 self.disconnect_timer = True
@@ -297,7 +346,7 @@ class Music(commands.Cog):
                 author = None
             if player.current.author.contains("VEVO"):
                 author = player.current.author.replace("VEVO", "")
-            print(f"Raw: {player.current.title}\nTitle: {title}\nAuthor: {author}")
+            logger.debug(f"Raw: {player.current.title}\nTitle: {title}\nAuthor: {author}")
             song = self.genius.search_song(title, author).to_dict()
             if song is None:
                 self.CP = (None, player.current.title)
@@ -387,7 +436,7 @@ class Music(commands.Cog):
                 try:
                     await self.playing_message.edit("", embed=embed, view=view)
                 except discord.errors.NotFound:
-                    print("Message not found, creating new one")
+                    logger.warning("Message not found, creating new one")
                     self.playing_message = await self.playing_message.channel.send("", embed=embed, view=view)
 
     @tasks.loop(seconds=1)
@@ -525,6 +574,26 @@ class Music(commands.Cog):
         # Get the player for this guild from cache.
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
 
+        # check the current channel for any birthday
+        for member in ctx.author.voice.channel.members:
+            if member.bot:
+                continue
+            birthday = birthday_easteregg(member.id)
+            if birthday["date"] is not None:
+                print(datetime.datetime.now().strftime("%d/%m"))
+                if datetime.datetime.now().strftime("%d/%m") == birthday["date"]:
+                    await ctx.channel.send(f"Happy birthday {birthday['name']}! 🎉🎂")
+                    bquery = f'ytsearch:happy birthday {birthday["name"].lower()} EpicHappyBirthdays'
+                    results = await player.node.get_tracks(bquery)
+                    # if there is a result, add it to the queue
+                    if results and results['tracks']:
+                        track = results['tracks'][0]
+                        player.add(requester=ctx.author.id, track=track)
+                        if not player.is_playing:
+                            await player.play()
+                            embed = discord.Embed(color=discord.Color.blurple())
+                            embed.title = f'Awaiting song information...'
+                            self.playing_message = await ctx.channel.send(embed=embed)
         # Check if the user input might be a URL. If it isn't, we can Lavalink do a YouTube search for it instead.
         # SoundCloud searching is possible by prefixing "scsearch:" instead.
         if not url_rx.match(query):
@@ -595,11 +664,13 @@ class Music(commands.Cog):
 
         # Get the results for the query from Lavalink.
         results = await player.node.get_tracks(query)
-
+        pprint(results)
         # Results could be None if Lavalink returns an invalid response (non-JSON/non-200 (OK)).
         # Alternatively, results.tracks could be an empty array if the query yielded no tracks.
         if not results or not results.tracks:
             return await ctx.respond('Nothing found!', delete_after=10, ephemeral=True)
+        elif results.load_type == LoadType.EMPTY:
+            return await ctx.respond(f'Nothing found for `{query}`!', delete_after=10, ephemeral=True)
 
         embed = discord.Embed(color=discord.Color.blurple(), title="Fetching song information...")
 
@@ -634,7 +705,7 @@ class Music(commands.Cog):
             else:
                 return False, "Not a playlist or album"
         except Exception as e:
-            print(e)
+            logger.error(f"Failed to get playlist info: {e.with_traceback(None)}")
             return False, e
         songs = deepcopy(playlist_info['tracks']['items'])
         if not playlist_info['tracks']['next']:
@@ -889,12 +960,12 @@ class Music(commands.Cog):
             "title": f"Queue for {ctx.guild.name}",
             "description": f"Showing {limit} songs."
         }
-        print("Generating pages")
+        logger.info("Generating pages")
         now_playing = {"title": player.current.title, "thumb": player.current.uri, "author": player.current.author}
         name = ctx.author.display_name
         pages = paginator(items=player.queue, embed_data=embed_data, per_page=limit, current_info=now_playing,
                           author=name)
-        print("Sending pages")
+        logger.info("Sending pages")
         page_iterator = Paginator(pages=pages, loop_pages=True)
         await page_iterator.respond(ctx.interaction)
 
@@ -1109,14 +1180,14 @@ def paginator(items, embed_data, author: str, current_info: dict, per_page=10, h
     # Loop through the chunks
     index = 1
     for chunk in chunks:
-        print(f"Generating page {index}/{len(chunks)}")
+        logger.info(f"Generating page {index}/{len(chunks)}")
         # Create a new embed
         embed = discord.Embed(**embed_data)
         embed.description = f"Currently playing: {current_info['title']}\nFor more info use /nowplaying"
         embed.set_footer(text=f"Requested by {author}")
         # Add the items to the embed
         for item in chunk:
-            print(f"\tAdding item {chunk.index(item)}")
+            logger.info(f"\tAdding item {chunk.index(item)}")
             embed.add_field(name=f"{index}. {item.title}", value=f"{item.author} [Source Video]({item.uri})",
                             inline=False)
             index += 1
