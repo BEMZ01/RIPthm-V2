@@ -42,7 +42,7 @@ SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_SECRET')
 
 intents = discord.Intents.default()
 intents.dm_messages = True
-bot = commands.AutoShardedBot(intents=intents, debug_guilds=[730859265249509386])
+bot = commands.AutoShardedBot(intents=intents)
 # bot = commands.Bot()
 # read extensions from cogs folder
 for filename in os.listdir('./cogs'):
