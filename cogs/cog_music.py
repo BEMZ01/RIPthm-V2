@@ -194,18 +194,18 @@ class Music(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         # attempt to find old playing message
-        for guild in self.bot.guilds:
-            # search for a message with the embed title "Now Playing" that was sent by the bot and delete it
-            for channel in guild.text_channels:
-                try:
-                    async for message in channel.history(limit=200):
-                        if message.author == self.bot.user and message.embeds:
-                            if message.embeds[0].title == "Now Playing":
-                                await message.delete()
-                                logger.info(f"Found old playing message in {guild.name}")
-                except discord.errors.Forbidden:
-                    pass
-            print(f"Connected to {guild.name}")
+        #for guild in self.bot.guilds:
+        #    # search for a message with the embed title "Now Playing" that was sent by the bot and delete it
+        #    for channel in guild.text_channels:
+        #        try:
+        #            async for message in channel.history(limit=200):
+        #                if message.author == self.bot.user and message.embeds:
+        #                    if message.embeds[0].title == "Now Playing":
+        #                        await message.delete()
+        #                        logger.info(f"Found old playing message in {guild.name}")
+        #        except discord.errors.Forbidden:
+        #            pass
+        #    print(f"Connected to {guild.name}")
         print(f"Connected to Discord as {self.bot.user}")
 
     async def cog_command_error(self, ctx: commands.Context, error: commands.CommandError):
