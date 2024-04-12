@@ -9,6 +9,7 @@ from pprint import pprint
 from threading import Thread
 import aiohttp
 import discord
+# import wavelink
 import lavalink
 import lyricsgenius
 import spotipy
@@ -118,6 +119,7 @@ class LavalinkVoiceClient(discord.VoiceClient):
         Handles the disconnect.
         Cleans up running player and leaves the voice client.
         """
+        print(f"Disconnect called with force={force}")
         player = self.lavalink.player_manager.get(self.channel.guild.id)
 
         # no need to disconnect if we are not connected
@@ -148,6 +150,8 @@ def birthday_easteregg(userID):
         data = file.read()
     data = data.split("\n")
     for line in data:
+        if line == "":
+            break  # we have reached the end of the file
         line = line.split(",")
         if line[2] == str(userID):
             return {"name": line[0], "date": line[1], "id": line[2]}
@@ -170,17 +174,22 @@ class Music(commands.Cog):
         self.genius.skip_non_songs = False
         self.CP = None
         self.stop_import = False
+        self.bot.lavalink = None
         bot.loop.create_task(self.connect())
 
     async def connect(self):
         await self.bot.wait_until_ready()
-        if not hasattr(self.bot, 'lavalink'):  # This ensures the client isn't overwritten during cog reloads.
+        if not hasattr(self.bot,
+                       'lavalink') or self.bot.lavalink is None:  # This ensures the client isn't overwritten during cog reloads.
             self.bot.lavalink = lavalink.Client(self.bot.user.id)
-            #self.bot.lavalink.add_node('192.168.1.235', 2333, os.getenv("LAVA_TOKEN"), 'eu',
+            # self.bot.lavalink.add_node('192.168.1.235', 2333, os.getenv("LAVA_TOKEN"), 'eu',
             #                           'default-node')
-            self.bot.lavalink.add_node(os.getenv("LAVA_ADDR"), int(os.getenv("LAVA_PORT")), os.getenv("LAVA_TOKEN"), 'eu',
+            self.bot.lavalink.add_node(os.getenv("LAVA_ADDR"), int(os.getenv("LAVA_PORT")), os.getenv("LAVA_TOKEN"),
+                                       'eu',
                                        'default-node')
             self.bot.lavalink.add_event_hook(self.track_hook)
+            # sleep for 2.5 seconds to allow the lavalink server to start
+            await asyncio.sleep(2.5)
             # try to complete a test search
             results = await self.bot.lavalink.get_tracks("ytsearch:Test")
             if not results or not results['tracks']:
@@ -190,11 +199,13 @@ class Music(commands.Cog):
                 print("Lavalink connected.")
         else:
             print("Lavalink already connected.")
+        # nodes = [wavelink.Node(uri=f"http://{os.getenv('LAVA_ADDR')}:{os.getenv('LAVA_PORT')}", password=os.getenv("LAVA_TOKEN"))]
+        # await wavelink.Pool.connect(nodes=nodes, client=self.bot, cache_capacity=100)
 
     @commands.Cog.listener()
     async def on_ready(self):
         # attempt to find old playing message
-        #for guild in self.bot.guilds:
+        # for guild in self.bot.guilds:
         #    # search for a message with the embed title "Now Playing" that was sent by the bot and delete it
         #    for channel in guild.text_channels:
         #        try:
@@ -206,7 +217,15 @@ class Music(commands.Cog):
         #        except discord.errors.Forbidden:
         #            pass
         #    print(f"Connected to {guild.name}")
+        logging.info(f"Logged in: {self.bot.user} | {self.bot.user.id}")
         print(f"Connected to Discord as {self.bot.user}")
+
+    async def wait_until_lavalink_ready(self):
+        while True:
+            if (self.bot.lavalink.node_manager.nodes and len(self.bot.lavalink.node_manager.nodes) > 0 and
+                    self.bot.lavalink.node_manager.nodes[0].stats.uptime > 0):
+                break
+            await asyncio.sleep(1)
 
     async def cog_command_error(self, ctx: commands.Context, error: commands.CommandError):
         if isinstance(error, commands.CommandInvokeError):
@@ -222,7 +241,7 @@ class Music(commands.Cog):
             channel = self.bot.get_channel(player.fetch('VoiceChannel'))
             client = channel.guild.voice_client
         except AttributeError:
-            logger.warning("check_call AttributeError")
+            logger.warning("AttributeError in check_call. Ignoring.")
             pass
         else:
             # if the player is connected and the bot is the only one in the channel (not counting other bots and itself)
@@ -486,7 +505,15 @@ class Music(commands.Cog):
 
     async def ensure_voice(self, ctx: discord.ApplicationContext):
         """ This check ensures that the bot and command author are in the same voice channel. """
+        while True:
+            if hasattr(self.bot, 'lavalink') and self.bot.lavalink is not None:
+                await self.wait_until_lavalink_ready()
+                break
+            await asyncio.sleep(1)
+        print("Lavalink ready.")
         player = self.bot.lavalink.player_manager.create(ctx.guild.id)
+        # if lavalink not in bot, return (for wavelink)
+
         # Create returns a player if one exists, otherwise creates.
         # This line is important because it ensures that a player always exists for a guild.
 
@@ -495,7 +522,7 @@ class Music(commands.Cog):
 
         # These are commands that require the bot to join a voice channel (i.e. initiating playback).
         # Commands such as volume/skip etc. don't require the bot to be in a voice channel so don't need listing here.
-        should_connect = ctx.command.name in ('play', 'pirate')
+        should_connect = ctx.command.name in ('play', 'pirate', 'quickplay')
         if should_connect:
             if not ctx.author.voice or not ctx.author.voice.channel:
                 # Our cog_command_error handler catches this and sends it to the voice channel.
@@ -532,19 +559,21 @@ class Music(commands.Cog):
             guild_id = event.player.guild_id
             guild = self.bot.get_guild(guild_id)
             # wait for a second
-            await asyncio.sleep(2.5)
-            try:
-                await self.playing_message.delete()
-                await event.player.reset_filters()
-            except AttributeError:
-                pass
-            finally:
-                self.playing_message = None
-            try:
-                await guild.voice_client.disconnect(force=True)
-            except AttributeError:
-                # We are already disconnected.
-                pass
+            await asyncio.sleep(5)
+            if not event.player.is_playing and not event.player.queue:
+                print("Queue ended, disconnecting...")
+                try:
+                    await self.playing_message.delete()
+                    await event.player.reset_filters()
+                except AttributeError:
+                    pass
+                finally:
+                    self.playing_message = None
+                try:
+                    await guild.voice_client.disconnect(force=True)
+                except AttributeError:
+                    # We are already disconnected.
+                    pass
 
     @commands.slash_command(name="join", description="Joins the voice channel you are in.")
     @option(name="channel", description="The voice channel to join.", required=False)
@@ -568,32 +597,40 @@ class Music(commands.Cog):
     @commands.slash_command(name="play", description="Play a song")
     @option(name="query", description="The song to play.", required=True)
     @option(name="shuffle", description="Shuffle the queue.", required=False)
-    async def play(self, ctx: discord.ApplicationContext, *, query: str, shuffle: bool = False):
+    @option(name="source", description="The source of the song.", required=False, choices=["youtube", "spotify",
+                                                                                           "soundcloud",
+                                                                                           "youtube_music", "twitch"])
+    async def play(self, ctx: discord.ApplicationContext, *, query: str, shuffle: bool = False,
+                   source: str = "youtube_music"):
         """ Searches and plays a song from a given query. """
         await ctx.defer()
         # Get the player for this guild from cache.
+        if not ctx.guild:
+            return
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
 
         # check the current channel for any birthday
-        for member in ctx.author.voice.channel.members:
+        now = str(datetime.datetime.now().strftime("%d/%m"))
+        voice = ctx.author.voice.channel.members
+        for member in voice:
             if member.bot:
                 continue
             birthday = birthday_easteregg(member.id)
-            if birthday["date"] is not None:
-                print(datetime.datetime.now().strftime("%d/%m"))
-                if datetime.datetime.now().strftime("%d/%m") == birthday["date"]:
-                    await ctx.channel.send(f"Happy birthday {birthday['name']}! 🎉🎂")
-                    bquery = f'ytsearch:happy birthday {birthday["name"].lower()} EpicHappyBirthdays'
-                    results = await player.node.get_tracks(bquery)
-                    # if there is a result, add it to the queue
-                    if results and results['tracks']:
-                        track = results['tracks'][0]
-                        player.add(requester=ctx.author.id, track=track)
-                        if not player.is_playing:
-                            await player.play()
-                            embed = discord.Embed(color=discord.Color.blurple())
-                            embed.title = f'Awaiting song information...'
-                            self.playing_message = await ctx.channel.send(embed=embed)
+            if birthday["date"] is None:
+                continue
+            elif str(now) == str(birthday["date"]):
+                await ctx.channel.send(f"Happy birthday {birthday['name']}! 🎉🎂")
+                bquery = f'ytsearch:happy birthday {birthday["name"].lower()} EpicHappyBirthdays'
+                results = await player.node.get_tracks(bquery)
+                # if there is a result, add it to the queue
+                if results and results['tracks']:
+                    track = results['tracks'][0]
+                    player.add(requester=ctx.author.id, track=track)
+                    if not player.is_playing:
+                        await player.play()
+                        embed = discord.Embed(color=discord.Color.blurple())
+                        embed.title = f'Awaiting song information...'
+                        self.playing_message = await ctx.channel.send(embed=embed)
         # Check if the user input might be a URL. If it isn't, we can Lavalink do a YouTube search for it instead.
         # SoundCloud searching is possible by prefixing "scsearch:" instead.
         if not url_rx.match(query):
@@ -606,6 +643,7 @@ class Music(commands.Cog):
             player = self.bot.lavalink.player_manager.get(ctx.guild.id)
             message = await ctx.send("🔁")
             tracks, name = await self.get_playlist_songs(query)
+            print(len(tracks), name)
             if shuffle:
                 random.shuffle(tracks)
             try:
@@ -637,6 +675,11 @@ class Music(commands.Cog):
                         embed.title = f'Importing Spotify playlist: {name}'
                         embed.description = f'**Importing:** {name} by {playlist_info["owner"]["display_name"]}'
                     embed.set_thumbnail(url=playlist_info["images"][0]["url"])
+                    # add a button to stop the import
+                    view = discord.ui.View()
+                    button = Button(style=ButtonStyle.red, label="Stop Import", custom_id="stop_import")
+                    button.callback = self.cb_stop_import
+                    view.add_item(button)
                     bar_length = 12
                     progress = (tracks.index(track) / len(tracks)) * bar_length
                     # progress bar using green and white square emojis
@@ -644,7 +687,7 @@ class Music(commands.Cog):
                         name=f"Progress: {round((tracks.index(track) / len(tracks)) * 100, 2)}% ({tracks.index(track)}/{len(tracks)})",
                         # 🟩⬜
                         value=f"{'🟩' * int(progress)}{'⬜' * (bar_length - int(progress))}")
-                    await message.edit(embed=embed, content="")
+                    await message.edit(embed=embed, content="", view=view)
                 results = await player.node.get_tracks(squery)
                 if not results or not results['tracks']:
                     continue
@@ -664,7 +707,6 @@ class Music(commands.Cog):
 
         # Get the results for the query from Lavalink.
         results = await player.node.get_tracks(query)
-        pprint(results)
         # Results could be None if Lavalink returns an invalid response (non-JSON/non-200 (OK)).
         # Alternatively, results.tracks could be an empty array if the query yielded no tracks.
         if not results or not results.tracks:
@@ -680,14 +722,25 @@ class Music(commands.Cog):
         #   SEARCH_RESULT   - query prefixed with either ytsearch: or scsearch:.
         #   NO_MATCHES      - query yielded no results
         #   LOAD_FAILED     - most likely, the video encountered an exception during loading.
-        if results.load_type == 'PLAYLIST_LOADED':
+        if results.load_type == 'PLAYLIST_LOADED' or results.load_type == 'SEARCH':
             tracks = results.tracks
             for track in tracks:
                 # Add all the tracks from the playlist to the queue.
                 player.add(requester=ctx.author.id, track=track)
-        else:
+        elif results.load_type == 'SEARCH_RESULT':
+            # If the query was a search query, we take the first result from the search results.
             track = results.tracks[0]
             player.add(requester=ctx.author.id, track=track)
+        elif results.load_type == 'TRACK_LOADED':
+            # If the query was a direct URL, we simply add the track to the queue.
+            track = results.tracks[0]
+            player.add(requester=ctx.author.id, track=track)
+        elif results.load_type == 'NO_MATCHES':
+            return await ctx.respond('Nothing found!', delete_after=10, ephemeral=True)
+        elif results.load_type == 'LOAD_FAILED':
+            return await ctx.respond('Failed to load track.', delete_after=10, ephemeral=True)
+        else:
+            return await ctx.respond(f'Unknown results type: {results.load_type}', delete_after=10, ephemeral=True)
         # send thumbs up
         await ctx.respond("Enqueued song", delete_after=1, ephemeral=True)
         # We don't want to call .play() if the player is playing as that will effectively skip
@@ -695,6 +748,18 @@ class Music(commands.Cog):
         if not player.is_playing or player.fetch('VoiceState') in ['-1', '0']:
             await player.play()
             self.playing_message = await ctx.channel.send(embed=embed)
+
+    @commands.slash_command(name="quickplay", description="Play a song from your status.")
+    async def quickplay(self, ctx: discord.ApplicationContext):
+        status = ctx.author.activities
+        for activity in status:
+            if isinstance(activity, discord.Spotify):
+                song = activity.title
+                artist = activity.artist
+                query = f'{song} {artist}'
+                await self.play(ctx, query=query)
+                return await ctx.respond(f"Playing {song} by {artist} from your status!", ephemeral=True)
+        return await ctx.respond("I can't see the spotify status. Are you listening to spotify?", ephemeral=True)
 
     async def get_playlist_songs(self, playlist):
         try:
@@ -1067,6 +1132,9 @@ class Music(commands.Cog):
         else:
             return await ctx.respond('Nothing playing.', delete_after=5, ephemeral=True)
 
+    async def cb_stop_import(self, ctx):
+        self.stop_import = True
+
     @commands.slash_command(name="pirate", description="Add the pirate shanties playlist to the queue")
     @option(name="shuffle", description="Shuffle the playlist", required=False)
     async def pirate(self, ctx: discord.ApplicationContext, shuffle: bool = False):
@@ -1091,6 +1159,9 @@ class Music(commands.Cog):
                 embed = discord.Embed(color=discord.Color.blurple())
                 embed.title = f'Importing Spotify playlist'
                 embed.description = f'**Importing:** {name}'
+                # add a button to stop the import
+                button = Button(style=ButtonStyle.red, label="Stop Import", custom_id="stop_import")
+                button.callback = self.cb_stop_import
                 bar_length = 12
                 progress = (tracks.index(track) / len(tracks)) * bar_length
                 # progress bar using green and white square emojis
@@ -1099,7 +1170,7 @@ class Music(commands.Cog):
                     value=f"{'🟩' * int(progress)}{'⬜' * (bar_length - int(progress))}")
                 # Add the image of the playlist cover to the embed
                 embed.set_thumbnail(url=playlist_info["images"][0]["url"])
-                await message.edit(embed=embed, content="")
+                await message.edit(embed=embed, content="", view=discord.ui.View().add_item(button))
             results = await player.node.get_tracks(query)
             if not results or not results['tracks']:
                 continue
