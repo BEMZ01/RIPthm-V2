@@ -1,5 +1,5 @@
 /.cache
 /birthdays.csv
-/.env
-/.idea
+/.env/*
+/.idea/*
 /debug.log

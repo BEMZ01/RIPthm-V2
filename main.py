@@ -45,7 +45,7 @@ intents.dm_messages = True
 intents.presences = True
 # allow the bot to get member's activities
 intents.members = True
-bot = commands.AutoShardedBot(intents=intents, debug_guilds=[730859265249509386,], command_prefix="!")
+bot = commands.AutoShardedBot(intents=intents, command_prefix="!")
 # bot = commands.Bot()
 # read extensions from cogs folder
 for filename in os.listdir('./cogs'):

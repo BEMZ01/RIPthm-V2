@@ -9,7 +9,6 @@ from pprint import pprint
 from threading import Thread
 import aiohttp
 import discord
-# import wavelink
 import lavalink
 import lyricsgenius
 import spotipy
@@ -175,22 +174,20 @@ class Music(commands.Cog):
         self.CP = None
         self.stop_import = False
         self.bot.lavalink = None
+        self.last_status = None
         bot.loop.create_task(self.connect())
 
     async def connect(self):
         await self.bot.wait_until_ready()
         if not hasattr(self.bot,
-                       'lavalink') or self.bot.lavalink is None:  # This ensures the client isn't overwritten during cog reloads.
+                       'lavalink') or self.bot.lavalink is None:  # This ensures the client isn't overwritten during
+            # cog reloads.
             self.bot.lavalink = lavalink.Client(self.bot.user.id)
-            # self.bot.lavalink.add_node('192.168.1.235', 2333, os.getenv("LAVA_TOKEN"), 'eu',
-            #                           'default-node')
             self.bot.lavalink.add_node(os.getenv("LAVA_ADDR"), int(os.getenv("LAVA_PORT")), os.getenv("LAVA_TOKEN"),
                                        'eu',
                                        'default-node')
             self.bot.lavalink.add_event_hook(self.track_hook)
-            # sleep for 2.5 seconds to allow the lavalink server to start
             await asyncio.sleep(2.5)
-            # try to complete a test search
             results = await self.bot.lavalink.get_tracks("ytsearch:Test")
             if not results or not results['tracks']:
                 print("Lavalink failed to connect.")
@@ -199,26 +196,38 @@ class Music(commands.Cog):
                 print("Lavalink connected.")
         else:
             print("Lavalink already connected.")
-        # nodes = [wavelink.Node(uri=f"http://{os.getenv('LAVA_ADDR')}:{os.getenv('LAVA_PORT')}", password=os.getenv("LAVA_TOKEN"))]
-        # await wavelink.Pool.connect(nodes=nodes, client=self.bot, cache_capacity=100)
 
     @commands.Cog.listener()
     async def on_ready(self):
-        # attempt to find old playing message
-        # for guild in self.bot.guilds:
-        #    # search for a message with the embed title "Now Playing" that was sent by the bot and delete it
-        #    for channel in guild.text_channels:
-        #        try:
-        #            async for message in channel.history(limit=200):
-        #                if message.author == self.bot.user and message.embeds:
-        #                    if message.embeds[0].title == "Now Playing":
-        #                        await message.delete()
-        #                        logger.info(f"Found old playing message in {guild.name}")
-        #        except discord.errors.Forbidden:
-        #            pass
-        #    print(f"Connected to {guild.name}")
         logging.info(f"Logged in: {self.bot.user} | {self.bot.user.id}")
         print(f"Connected to Discord as {self.bot.user}")
+        await self.wait_until_lavalink_ready()
+        self.check_update_status.start()
+
+    @tasks.loop(seconds=10)
+    async def check_update_status(self):
+        if (not hasattr(self.bot, 'lavalink') or not self.bot.lavalink.node_manager.nodes or
+                not self.bot.lavalink.node_manager.nodes[0].stats.uptime):
+            return
+        listening = True
+        if len(self.bot.voice_clients) == 0:
+            status = "nothing :("
+        else:
+            player = self.bot.lavalink.player_manager.get(self.bot.voice_clients[0].guild.id)
+            if player.is_playing:
+                status = f"{player.current.title} by {player.current.author}."
+            elif len(self.bot.voice_clients) > 1:
+                status = f"in {len(self.bot.voice_clients)} voice channels 🎵"
+                listening = False
+            else:
+                status = "music 🎵"
+        if status != self.last_status:
+            logger.info(f"Updating status to {status}")
+            if listening:
+                await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name=status))
+            else:
+                await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.playing, name=status))
+            self.last_status = status
 
     async def wait_until_lavalink_ready(self):
         while True:
@@ -396,12 +405,14 @@ class Music(commands.Cog):
                         f"https://img.youtube.com/vi/{player.current.identifier}/hqdefault.jpg")
                 if player.paused:
                     embed = discord.Embed(title="Paused " + loop + " " + shuffle,
-                                          description=f'[{player.current.title}]({player.current.uri})',
+                                          description=f'**[{player.current.title}]({player.current.uri})**\n'
+                                                      f'{player.current.author}',
                                           color=color)
                 else:
                     try:
                         embed = discord.Embed(title="Now Playing " + loop + " " + shuffle,
-                                              description=f'[{player.current.title}]({player.current.uri})',
+                                              description=f'**[{player.current.title}]({player.current.uri})**\n'
+                                                          f'{player.current.author}',
                                               color=color)
                     except AttributeError:
                         embed = discord.Embed(title="Now Playing " + loop + " " + shuffle,
@@ -599,7 +610,8 @@ class Music(commands.Cog):
     @option(name="shuffle", description="Shuffle the queue.", required=False)
     @option(name="source", description="The source of the song.", required=False, choices=["youtube", "spotify",
                                                                                            "soundcloud",
-                                                                                           "youtube_music", "twitch"])
+                                                                                           "youtube_music", "twitch"],
+            default="youtube_music")
     async def play(self, ctx: discord.ApplicationContext, *, query: str, shuffle: bool = False,
                    source: str = "youtube_music"):
         """ Searches and plays a song from a given query. """
@@ -643,7 +655,6 @@ class Music(commands.Cog):
             player = self.bot.lavalink.player_manager.get(ctx.guild.id)
             message = await ctx.send("🔁")
             tracks, name = await self.get_playlist_songs(query)
-            print(len(tracks), name)
             if shuffle:
                 random.shuffle(tracks)
             try:
@@ -663,9 +674,9 @@ class Music(commands.Cog):
                     self.stop_import = False
                     return
                 if "/album/" in query:
-                    squery = f'ytsearch:{track["name"]} {track["artists"][0]["name"]}'
+                    squery = f'ytmsearch:{track["name"]} {track["artists"][0]["name"]}'
                 elif "/playlist/" in query:
-                    squery = f'ytsearch:{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
+                    squery = f'ytmsearch:{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
                 if int(tracks.index(track)) % 5 == 0:
                     embed = discord.Embed(color=await Generate_color(str(playlist_info["images"][0]["url"])))
                     if "/album/" in query:
@@ -690,6 +701,7 @@ class Music(commands.Cog):
                     await message.edit(embed=embed, content="", view=view)
                 results = await player.node.get_tracks(squery)
                 if not results or not results['tracks']:
+                    logger.error(f"Failed to get track for {track['name']} by {track['artists'][0]['name']}")
                     continue
                 track = results['tracks'][0]
                 player.add(requester=ctx.author.id, track=track)
@@ -722,11 +734,16 @@ class Music(commands.Cog):
         #   SEARCH_RESULT   - query prefixed with either ytsearch: or scsearch:.
         #   NO_MATCHES      - query yielded no results
         #   LOAD_FAILED     - most likely, the video encountered an exception during loading.
-        if results.load_type == 'PLAYLIST_LOADED' or results.load_type == 'SEARCH':
+        print(f"We received a {results.load_type} from Lavalink.")
+        if results.load_type == 'PLAYLIST_LOADED':
             tracks = results.tracks
             for track in tracks:
                 # Add all the tracks from the playlist to the queue.
                 player.add(requester=ctx.author.id, track=track)
+        elif results.load_type == 'SEARCH':
+            # If the query was a search query, we take the top item from the search results.
+            track = results.tracks[0]
+            player.add(requester=ctx.author.id, track=track)
         elif results.load_type == 'SEARCH_RESULT':
             # If the query was a search query, we take the first result from the search results.
             track = results.tracks[0]
@@ -754,12 +771,15 @@ class Music(commands.Cog):
         status = ctx.author.activities
         for activity in status:
             if isinstance(activity, discord.Spotify):
+                pprint(activity.to_dict())
                 song = activity.title
                 artist = activity.artist
                 query = f'{song} {artist}'
                 await self.play(ctx, query=query)
-                return await ctx.respond(f"Playing {song} by {artist} from your status!", ephemeral=True)
-        return await ctx.respond("I can't see the spotify status. Are you listening to spotify?", ephemeral=True)
+                return await ctx.respond(f"Playing {song} by {artist} from your status!", ephemeral=True,
+                                         delete_after=10)
+        return await ctx.respond("I can't see the spotify status. Are you listening to spotify?", ephemeral=True,
+                                 delete_after=10)
 
     async def get_playlist_songs(self, playlist):
         try:
@@ -1221,8 +1241,12 @@ async def Generate_color(image_url):
     colors = image.getcolors(image.size[0] * image.size[1])
     # Sort the colors by the amount of pixels and get the most common color
     colors.sort(key=lambda x: x[0], reverse=True)
-    # Get the color of the most common color
-    color = colors[0][1]
+    # Get the color of the most common color, ignoring black and white
+    while True:
+        color = colors[0][1]
+        if color != (0, 0, 0) and color != (255, 255, 255):
+            break
+        colors.pop(0)
     try:
         if len(color) < 3:
             return discord.Color.blurple()
