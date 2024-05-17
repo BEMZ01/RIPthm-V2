@@ -700,14 +700,17 @@ class Music(commands.Cog):
                         value=f"{'🟩' * int(progress)}{'⬜' * (bar_length - int(progress))}")
                     await message.edit(embed=embed, content="", view=view)
                 results = await player.node.get_tracks(squery)
-                if not results or not results['tracks']:
+                if not results or not results['tracks'] or len(results['tracks']) == 0:
                     logger.error(f"Failed to get track for {track['name']} by {track['artists'][0]['name']}")
                     continue
-                track = results['tracks'][0]
-                player.add(requester=ctx.author.id, track=track)
+                else:
+                    track = results['tracks'][0]
+                    player.add(requester=ctx.author.id, track=track)
 
                 if not player.is_playing:
                     await player.play()
+                    if shuffle:
+                        player.shuffle = True
                     embed = discord.Embed(color=discord.Color.blurple())
                     embed.title = f'Awaiting song information...'
                     self.playing_message = await ctx.channel.send(embed=embed)
