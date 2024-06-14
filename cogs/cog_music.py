@@ -1,12 +1,10 @@
 import asyncio
 import datetime
 import io
-import json
 import logging
 import random
 import re
-from pprint import pprint
-from threading import Thread
+import traceback
 import aiohttp
 import discord
 import lavalink
@@ -32,8 +30,6 @@ url_rx = re.compile(r'https?://(?:www\.)?.+')
 sp = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLIENT_ID,
                                                                          client_secret=SPOTIFY_CLIENT_SECRET))
 sbClient = sb.Client()
-
-logger = logging.getLogger(__name__)
 
 
 class Effect:
@@ -77,7 +73,6 @@ class LavalinkVoiceClient(discord.VoiceClient):
             player = self.lavalink.player_manager.get(self.client.voice_clients[0].channel.guild.id)
             if player.fetch('VoiceChannel') is not None:
                 player.store('VoiceChannel', self.client.voice_clients[0].channel.id)
-                logger.info("I've been moved to a new channel. Updating variables...")
         except KeyError:
             return
         await self.lavalink.voice_update_handler(lavalink_data)
@@ -94,7 +89,6 @@ class LavalinkVoiceClient(discord.VoiceClient):
         # Test if bot has been kicked
         if int(data['user_id']) == int(self.client.user.id) and player.is_playing:
             if data['channel_id'] is None:
-                logger.info("I've been kicked from a channel.")
                 player.store("VoiceStatus", "-1")
                 player.channel_id = None
                 self.cleanup()
@@ -158,7 +152,11 @@ def birthday_easteregg(userID):
 
 
 class Music(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot, logger):
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger.handlers = logger.handlers
+        self.logger.setLevel(logger.level)
+        self.logger.propagate = False
         self.disconnect_timer = False
         self.bot = bot
         self.playing_message = None
@@ -190,17 +188,16 @@ class Music(commands.Cog):
             await asyncio.sleep(2.5)
             results = await self.bot.lavalink.get_tracks("ytsearch:Test")
             if not results or not results['tracks']:
-                print("Lavalink failed to connect.")
+                self.logger.error("Lavalink failed to connect.")
                 return
             else:
-                print("Lavalink connected.")
+                self.logger.info("Lavalink connected.")
         else:
-            print("Lavalink already connected.")
+            self.logger.warning("Lavalink already connected.")
 
     @commands.Cog.listener()
     async def on_ready(self):
-        logging.info(f"Logged in: {self.bot.user} | {self.bot.user.id}")
-        print(f"Connected to Discord as {self.bot.user}")
+        self.logger.info("onready event received")
         await self.wait_until_lavalink_ready()
         self.check_update_status.start()
 
@@ -222,7 +219,7 @@ class Music(commands.Cog):
             else:
                 status = "music 🎵"
         if status != self.last_status:
-            logger.info(f"Updating status to {status}")
+            self.logger.info(f"Updating status to {status}")
             if listening:
                 await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name=status))
             else:
@@ -239,7 +236,7 @@ class Music(commands.Cog):
     async def cog_command_error(self, ctx: commands.Context, error: commands.CommandError):
         if isinstance(error, commands.CommandInvokeError):
             embed = discord.Embed(title="Error", description=f"```{error.original}```", color=discord.Color.red())
-            logger.error(f"Error in {ctx.command.name}: {error.original}")
+            self.logger.error(f"Error in {ctx.command.name}: {error.original}")
             await ctx.respond(embed=embed, ephemeral=True, delete_after=10)
 
     @tasks.loop(seconds=30)
@@ -250,11 +247,11 @@ class Music(commands.Cog):
             channel = self.bot.get_channel(player.fetch('VoiceChannel'))
             client = channel.guild.voice_client
         except AttributeError:
-            logger.warning("AttributeError in check_call. Ignoring.")
+            self.logger.warning("AttributeError in check_call. Ignoring.")
             pass
         else:
             # if the player is connected and the bot is the only one in the channel (not counting other bots and itself)
-            logger.debug(
+            self.logger.debug(
                 f'There are {len([member for member in channel.members if not member.bot])} members in the vc.')
             if player.is_connected and len(
                     [member for member in channel.members if not member.bot]) == 0 and not self.disconnect_timer:
@@ -374,7 +371,7 @@ class Music(commands.Cog):
                 author = None
             if player.current.author.contains("VEVO"):
                 author = player.current.author.replace("VEVO", "")
-            logger.debug(f"Raw: {player.current.title}\nTitle: {title}\nAuthor: {author}")
+            self.logger.debug(f"Raw: {player.current.title}\nTitle: {title}\nAuthor: {author}")
             song = self.genius.search_song(title, author).to_dict()
             if song is None:
                 self.CP = (None, player.current.title)
@@ -466,8 +463,17 @@ class Music(commands.Cog):
                 try:
                     await self.playing_message.edit("", embed=embed, view=view)
                 except discord.errors.NotFound:
-                    logger.warning("Message not found, creating new one")
+                    self.logger.warning("Message not found, creating new one")
                     self.playing_message = await self.playing_message.channel.send("", embed=embed, view=view)
+
+    @update_playing_message.error
+    async def update_playing_message_error(self, exception):
+        self.logger.error(f"Error in update_playing_message: {exception}")
+        user = self.bot.get_user(self.bot.owner_id)
+        tb = traceback.format_exception(type(exception), exception, exception.__traceback__)
+        tb = ''.join(tb)
+        await user.send(f"Error in update_playing_message: {exception}\n```{tb}```")
+        self.update_playing_message.restart()
 
     @tasks.loop(seconds=1)
     async def test_vid(self):
@@ -521,7 +527,7 @@ class Music(commands.Cog):
                 await self.wait_until_lavalink_ready()
                 break
             await asyncio.sleep(1)
-        print("Lavalink ready.")
+        self.logger.info("Lavalink ready.")
         player = self.bot.lavalink.player_manager.create(ctx.guild.id)
         # if lavalink not in bot, return (for wavelink)
 
@@ -572,7 +578,7 @@ class Music(commands.Cog):
             # wait for a second
             await asyncio.sleep(5)
             if not event.player.is_playing and not event.player.queue:
-                print("Queue ended, disconnecting...")
+                self.logger.info("Queue ended, disconnecting...")
                 try:
                     await self.playing_message.delete()
                     await event.player.reset_filters()
@@ -701,7 +707,7 @@ class Music(commands.Cog):
                     await message.edit(embed=embed, content="", view=view)
                 results = await player.node.get_tracks(squery)
                 if not results or not results['tracks'] or len(results['tracks']) == 0:
-                    logger.error(f"Failed to get track for {track['name']} by {track['artists'][0]['name']}")
+                    self.logger.error(f"Failed to get track for {track['name']} by {track['artists'][0]['name']}")
                     continue
                 else:
                     track = results['tracks'][0]
@@ -737,7 +743,7 @@ class Music(commands.Cog):
         #   SEARCH_RESULT   - query prefixed with either ytsearch: or scsearch:.
         #   NO_MATCHES      - query yielded no results
         #   LOAD_FAILED     - most likely, the video encountered an exception during loading.
-        print(f"We received a {results.load_type} from Lavalink.")
+        self.logger.debug(f"We received a {results.load_type} from Lavalink.")
         if results.load_type == 'PLAYLIST_LOADED':
             tracks = results.tracks
             for track in tracks:
@@ -774,7 +780,7 @@ class Music(commands.Cog):
         status = ctx.author.activities
         for activity in status:
             if isinstance(activity, discord.Spotify):
-                pprint(activity.to_dict())
+                self.logger.debug(activity.to_dict())
                 song = activity.title
                 artist = activity.artist
                 query = f'{song} {artist}'
@@ -793,7 +799,7 @@ class Music(commands.Cog):
             else:
                 return False, "Not a playlist or album"
         except Exception as e:
-            logger.error(f"Failed to get playlist info: {e.with_traceback(None)}")
+            self.logger.error(f"Failed to get playlist info: {e.with_traceback(None)}")
             return False, e
         songs = deepcopy(playlist_info['tracks']['items'])
         if not playlist_info['tracks']['next']:
@@ -1048,12 +1054,12 @@ class Music(commands.Cog):
             "title": f"Queue for {ctx.guild.name}",
             "description": f"Showing {limit} songs."
         }
-        logger.info("Generating pages")
+        self.logger.info("Generating pages")
         now_playing = {"title": player.current.title, "thumb": player.current.uri, "author": player.current.author}
         name = ctx.author.display_name
         pages = paginator(items=player.queue, embed_data=embed_data, per_page=limit, current_info=now_playing,
                           author=name)
-        logger.info("Sending pages")
+        self.logger.info("Sending pages")
         page_iterator = Paginator(pages=pages, loop_pages=True)
         await page_iterator.respond(ctx.interaction)
 
@@ -1278,14 +1284,12 @@ def paginator(items, embed_data, author: str, current_info: dict, per_page=10, h
     # Loop through the chunks
     index = 1
     for chunk in chunks:
-        logger.info(f"Generating page {index}/{len(chunks)}")
         # Create a new embed
         embed = discord.Embed(**embed_data)
         embed.description = f"Currently playing: {current_info['title']}\nFor more info use /nowplaying"
         embed.set_footer(text=f"Requested by {author}")
         # Add the items to the embed
         for item in chunk:
-            logger.info(f"\tAdding item {chunk.index(item)}")
             embed.add_field(name=f"{index}. {item.title}", value=f"{item.author} [Source Video]({item.uri})",
                             inline=False)
             index += 1
@@ -1295,4 +1299,4 @@ def paginator(items, embed_data, author: str, current_info: dict, per_page=10, h
 
 
 def setup(bot):
-    bot.add_cog(Music(bot))
+    bot.add_cog(Music(bot, bot.logger))

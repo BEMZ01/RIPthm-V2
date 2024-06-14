@@ -6,7 +6,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 DBUS_FOUND = True
 try:
     import dbus
@@ -29,16 +28,24 @@ def restart_service():
 
 
 class Admin(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot, logger):
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger.handlers = logger.handlers
+        self.logger.setLevel(logger.level)
+        self.logger.propagate = False
         self.bot = bot
 
     async def cog_before_invoke(self, ctx: discord.ApplicationContext):
-        logger.info(f'Command {ctx.command.name} invoked by {ctx.author} in guild {ctx.guild.name}')
-        if await self.bot.is_owner(ctx.author):
+        self.logger.info(f'Command {ctx.command.name} invoked by {ctx.author} in guild {ctx.guild.name}')
+        if ctx.author.id == self.bot.owner_id or await self.bot.is_owner(ctx.author):
             return True
         else:
             await ctx.respond("This is a restricted command.", ephemeral=True, delete_after=15)
             raise commands.NotOwner()
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        self.logger.info('onready event received')
 
     group = discord.SlashCommandGroup(name="admin", description="Admin commands")
 
@@ -87,6 +94,5 @@ class Admin(commands.Cog):
         await ctx.respond("Logs", files=[discord.File("debug.log")])
 
 
-
 def setup(bot):
-    bot.add_cog(Admin(bot))
+    bot.add_cog(Admin(bot, bot.logger))
