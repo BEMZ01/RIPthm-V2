@@ -10,7 +10,7 @@ python-dotenv = "^0.21.0"
 spotipy = "^2.21.0"
 yt-dlp = "^2022.11.11"
 colorthief = "^0.2.1"
-lavalink = "^4.0.4"
+lavalink = "^5.7.1"
 py-cord = "^2.2.2"
 discord = "^2.1.0"
 
