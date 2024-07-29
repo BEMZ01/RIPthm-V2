@@ -28,7 +28,7 @@ file_handler.setLevel(logging.DEBUG)  # Set handler level
 
 # Create a StreamHandler for STDOUT
 stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.DEBUG)  # Set handler level
+stream_handler.setLevel(logging.INFO)  # Set handler level
 
 # Create a Formatter
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
