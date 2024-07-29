@@ -420,7 +420,9 @@ class Music(commands.Cog):
                 if self.CP is not None:
                     embed.set_thumbnail(url=self.CP[0]['song_art_image_url'])
                 else:
-                    embed.set_thumbnail(url=f"https://img.youtube.com/vi/{player.current.identifier}/hqdefault.jpg")
+                    embed.set_thumbnail(url=f"https://img.youtube.com/vi/"
+                                            f"{player.current.identifier if player is not None else 'ABCDEF'}"
+                                            f"/hqdefault.jpg")
                 if player.current is None:
                     return
                 else:
@@ -739,13 +741,7 @@ class Music(commands.Cog):
 
         embed = discord.Embed(color=discord.Color.blurple(), title="Fetching song information...")
 
-        # Valid loadTypes are:
-        #   TRACK_LOADED    - single video/direct URL
-        #   PLAYLIST_LOADED - direct URL to playlist
-        #   SEARCH_RESULT   - query prefixed with either ytsearch: or scsearch:.
-        #   NO_MATCHES      - query yielded no results
-        #   LOAD_FAILED     - most likely, the video encountered an exception during loading.
-        self.logger.debug(f"We received a {results.load_type} from Lavalink.")
+        self.logger.info(f"We received a {results.load_type} from Lavalink.")
         if results.load_type == 'PLAYLIST_LOADED':
             tracks = results.tracks
             for track in tracks:
@@ -756,12 +752,8 @@ class Music(commands.Cog):
             track = results.tracks[0]
             player.add(requester=ctx.author.id, track=track)
             self.logger.debug(f"Queue length: {len(player.queue)}")
-        elif results.load_type == 'SEARCH_RESULT':
-            # If the query was a search query, we take the first result from the search results.
-            track = results.tracks[0]
-            player.add(requester=ctx.author.id, track=track)
-        elif results.load_type == 'TRACK_LOADED':
-            # If the query was a direct URL, we simply add the track to the queue.
+        elif results.load_type == 'TRACK':
+            # If the query was a single video, we add it to the queue.
             track = results.tracks[0]
             player.add(requester=ctx.author.id, track=track)
         elif results.load_type == 'NO_MATCHES':
