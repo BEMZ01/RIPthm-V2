@@ -5,6 +5,8 @@ import logging
 import random
 import re
 import traceback
+from pprint import pprint
+
 import aiohttp
 import discord
 import lavalink
@@ -186,12 +188,12 @@ class Music(commands.Cog):
                                        'default-node')
             self.bot.lavalink.add_event_hook(self.track_hook)
             await asyncio.sleep(2.5)
-            results = await self.bot.lavalink.get_tracks("ytsearch:Test")
+            results = await self.bot.lavalink.get_tracks("ytmsearch:Test")
             if not results or not results['tracks']:
                 self.logger.error("Lavalink failed to connect.")
                 return
-            else:
-                self.logger.info("Lavalink connected.")
+            elif results['tracks']:
+                self.logger.info(f"Connected to Lavalink. Test video: {results['tracks'][0]['info']['title']}")
         else:
             self.logger.warning("Lavalink already connected.")
 
@@ -753,6 +755,7 @@ class Music(commands.Cog):
             # If the query was a search query, we take the top item from the search results.
             track = results.tracks[0]
             player.add(requester=ctx.author.id, track=track)
+            self.logger.debug(f"Queue length: {len(player.queue)}")
         elif results.load_type == 'SEARCH_RESULT':
             # If the query was a search query, we take the first result from the search results.
             track = results.tracks[0]
