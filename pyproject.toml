@@ -6,7 +6,7 @@ authors = ["Replit user <<>>"]
 
 [tool.poetry.dependencies]
 python = "^3.8"
-python-dotenv = "^0.21.0"
+python-dotenv = "^1.0.1"
 spotipy = "^2.21.0"
 yt-dlp = "^2024.7.25"
 colorthief = "^0.2.1"
