@@ -657,6 +657,7 @@ class Music(commands.Cog):
         # SoundCloud searching is possible by prefixing "scsearch:" instead.
         if not url_rx.match(query):
             query = f'ytsearch:{query}'
+
         elif query.startswith('https://open.spotify.com/playlist/') or query.startswith(
                 "https://open.spotify.com/album/"):
             await ctx.respond(
@@ -729,7 +730,10 @@ class Music(commands.Cog):
             await asyncio.sleep(10)
             await message.delete()
             return True
-
+        elif query.startswith("https://open.spotify.com/track/"):
+            track = sp.track(query)
+            self.logger.info(f"Spotify track: {track['name']} by {track['artists'][0]['name']}")
+            query = f'ytmsearch:{track["name"]} {track["artists"][0]["name"]}'
         # Get the results for the query from Lavalink.
         results = await player.node.get_tracks(query)
         # Results could be None if Lavalink returns an invalid response (non-JSON/non-200 (OK)).
