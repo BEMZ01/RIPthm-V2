@@ -188,12 +188,16 @@ class Music(commands.Cog):
                                        'default-node')
             self.bot.lavalink.add_event_hook(self.track_hook)
             await asyncio.sleep(2.5)
-            results = await self.bot.lavalink.get_tracks("ytmsearch:Test")
-            if not results or not results['tracks']:
-                self.logger.error("Lavalink failed to connect.")
+            try:
+                results = await self.bot.lavalink.get_tracks("ytmsearch:Test")
+                if not results or not results['tracks']:
+                    self.logger.error("Lavalink failed to connect.")
+                    return
+                elif results['tracks']:
+                    self.logger.info(f"Connected to Lavalink. Test video: {results['tracks'][0]['info']['title']}")
+            except IndexError as e:
+                self.logger.error(f"Failed to connect to Lavalink: {e}")
                 return
-            elif results['tracks']:
-                self.logger.info(f"Connected to Lavalink. Test video: {results['tracks'][0]['info']['title']}")
         else:
             self.logger.warning("Lavalink already connected.")
 
@@ -420,9 +424,12 @@ class Music(commands.Cog):
                 if self.CP is not None:
                     embed.set_thumbnail(url=self.CP[0]['song_art_image_url'])
                 else:
-                    embed.set_thumbnail(url=f"https://img.youtube.com/vi/"
-                                            f"{player.current.identifier if player is not None else 'ABCDEF'}"
-                                            f"/hqdefault.jpg")
+                    if player.current is None:
+                        return
+                    else:
+                        embed.set_thumbnail(url=f"https://img.youtube.com/vi/"
+                                                f"{player.current.identifier if player is not None else 'ABCDEF'}"
+                                                f"/hqdefault.jpg")
                 if player.current is None:
                     return
                 else:
@@ -657,7 +664,6 @@ class Music(commands.Cog):
         # SoundCloud searching is possible by prefixing "scsearch:" instead.
         if not url_rx.match(query):
             query = f'ytsearch:{query}'
-
         elif query.startswith('https://open.spotify.com/playlist/') or query.startswith(
                 "https://open.spotify.com/album/"):
             await ctx.respond(
