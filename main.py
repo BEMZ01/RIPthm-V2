@@ -55,7 +55,10 @@ intents.dm_messages = True
 intents.presences = True
 # allow the bot to get member's activities
 intents.members = True
-bot = commands.AutoShardedBot(intents=intents, owner_id=int(os.getenv('OWNER_ID')))
+if os.getenv("DEBUG_GUILDS") is not None:
+    bot = commands.AutoShardedBot(intents=intents, owner_id=int(os.getenv('OWNER_ID')), debug_guilds=os.getenv("DEBUG_GUILDS").split(","))
+else:
+    bot = commands.AutoShardedBot(intents=intents, owner_id=int(os.getenv('OWNER_ID')))
 bot.logger = logger
 # bot = commands.Bot()
 # read extensions from cogs folder

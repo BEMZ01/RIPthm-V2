@@ -24,6 +24,7 @@ from discord.ext import commands, tasks
 from lavalink.filters import *
 import os
 from copy import deepcopy
+import time
 
 load_dotenv()
 SPOTIFY_CLIENT_ID = str(os.getenv('SPOTIFY_CLIENT_ID'))
@@ -131,6 +132,16 @@ class LavalinkVoiceClient(discord.VoiceClient):
         self.cleanup()
 
 
+class DiscordDropDownSelect(discord.ui.Select):
+    def __init__(self, options: list, **kwargs):
+        super().__init__(**kwargs)
+        for opt in options:
+            self.add_option(label=opt, value=opt)
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_message(f'You selected {self.values[0]}', ephemeral=True)
+
+
 def progress_bar(player):
     # This is a helper function that generates a progress bar for the currently playing track.
     # It's not necessary for the cog to function, but it's a nice touch.
@@ -227,9 +238,11 @@ class Music(commands.Cog):
         if status != self.last_status:
             self.logger.info(f"Updating status to {status}")
             if listening:
-                await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name=status))
+                await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening,
+                                                                         name=status))
             else:
-                await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.playing, name=status))
+                await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.playing,
+                                                                         name=status))
             self.last_status = status
 
     async def wait_until_lavalink_ready(self):
@@ -664,8 +677,9 @@ class Music(commands.Cog):
         # SoundCloud searching is possible by prefixing "scsearch:" instead.
         if not url_rx.match(query):
             query = f'ytsearch:{query}'
-        elif query.startswith('https://open.spotify.com/playlist/') or query.startswith(
+        if query.startswith('https://open.spotify.com/playlist/') or query.startswith(
                 "https://open.spotify.com/album/"):
+            self.stop_import = False
             await ctx.respond(
                 "👍 `Started import of Spotify to YouTube, please watch the next message for progress.`",
                 delete_after=10, ephemeral=True)
@@ -680,50 +694,39 @@ class Music(commands.Cog):
                 elif "/playlist/" in query:
                     playlist_info = sp.playlist(query)
             except spotipy.SpotifyException as e:
-                await ctx.respond(f"👎 `Failed to import Spotify playlist. ({e})`\n"
-                                  "The playlist might be private.", ephemeral=True, delete_after=10)
+                await ctx.respond(f"👎 `Failed to import Spotify playlist. ({e})`\nThe playlist might be private.",
+                                  ephemeral=True, delete_after=10)
                 await message.delete()
                 return
-            for track in tracks:
+            start_time = time.time()
+            bar_length = 12
+            batch_size = max(1, len(tracks) // bar_length)
+            for i in range(0, len(tracks), batch_size):
                 if self.stop_import:
                     await ctx.respond("👍 `Stopped importing Spotify playlist.`", ephemeral=True, delete_after=10)
                     await message.delete()
                     self.stop_import = False
                     return
-                if "/album/" in query:
-                    squery = f'ytmsearch:{track["name"]} {track["artists"][0]["name"]}'
-                elif "/playlist/" in query:
-                    squery = f'ytmsearch:{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
-                if int(tracks.index(track)) % 5 == 0:
-                    embed = discord.Embed(color=await Generate_color(str(playlist_info["images"][0]["url"])))
+                batch = tracks[i:i + batch_size]
+                tasks = []
+                for track in batch:
                     if "/album/" in query:
-                        embed.title = f'Importing Spotify album: {name}'
-                        embed.description = f'**Importing:** {name} by {playlist_info["artists"][0]["name"]}'
+                        squery = f'ytmsearch:{track["name"]} {track["artists"][0]["name"]}'
                     elif "/playlist/" in query:
-                        embed.title = f'Importing Spotify playlist: {name}'
-                        embed.description = f'**Importing:** {name} by {playlist_info["owner"]["display_name"]}'
-                    embed.set_thumbnail(url=playlist_info["images"][0]["url"])
-                    # add a button to stop the import
-                    view = discord.ui.View()
-                    button = Button(style=ButtonStyle.red, label="Stop Import", custom_id="stop_import")
-                    button.callback = self.cb_stop_import
-                    view.add_item(button)
-                    bar_length = 12
-                    progress = (tracks.index(track) / len(tracks)) * bar_length
-                    # progress bar using green and white square emojis
-                    embed.add_field(
-                        name=f"Progress: {round((tracks.index(track) / len(tracks)) * 100, 2)}% ({tracks.index(track)}/{len(tracks)})",
-                        # 🟩⬜
-                        value=f"{'🟩' * int(progress)}{'⬜' * (bar_length - int(progress))}")
-                    await message.edit(embed=embed, content="", view=view)
-                results = await player.node.get_tracks(squery)
-                if not results or not results['tracks'] or len(results['tracks']) == 0:
-                    self.logger.error(f"Failed to get track for {track['name']} by {track['artists'][0]['name']}")
+                        squery = f'ytmsearch:{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
+                    tasks.append(player.node.get_tracks(squery))
+                try:
+                    results = await asyncio.gather(*tasks)
+                except Exception as e:
+                    self.logger.error(f"Error fetching tracks: {e}")
                     continue
-                else:
-                    track = results['tracks'][0]
+                for result in results:
+                    if not result or not result['tracks']:
+                        self.logger.error(
+                            f"Failed to get track for {track['name']} by {track['artists'][0]['name']}")
+                        continue
+                    track = result['tracks'][0]
                     player.add(requester=ctx.author.id, track=track)
-
                 if not player.is_playing:
                     await player.play()
                     if shuffle:
@@ -731,7 +734,26 @@ class Music(commands.Cog):
                     embed = discord.Embed(color=discord.Color.blurple())
                     embed.title = f'Awaiting song information...'
                     self.playing_message = await ctx.channel.send(embed=embed)
-                pass
+                elapsed_time = time.time() - start_time
+                remaining_tracks = len(tracks) - (i + batch_size)
+                estimated_time = (elapsed_time / (i + batch_size)) * remaining_tracks
+                embed = discord.Embed(color=await Generate_color(str(playlist_info["images"][0]["url"])))
+                if "/album/" in query:
+                    embed.title = f'Importing Spotify album: {name}'
+                    embed.description = f'**Importing:** {name} by {playlist_info["artists"][0]["name"]}'
+                elif "/playlist/" in query:
+                    embed.title = f'Importing Spotify playlist: {name}'
+                    embed.description = f'**Importing:** {name} by {playlist_info["owner"]["display_name"]}'
+                embed.set_thumbnail(url=playlist_info["images"][0]["url"])
+                view = discord.ui.View()
+                button = Button(style=ButtonStyle.red, label="Stop Import", custom_id="stop_import")
+                button.callback = self.cb_stop_import
+                view.add_item(button)
+                progress = ((i + batch_size) / len(tracks)) * bar_length
+                embed.add_field(
+                    name=f"Progress: {round(((i + batch_size) / len(tracks)) * 100, 2)}% ({i + batch_size}/{len(tracks)}) | ETA: {round(estimated_time, 2)}s",
+                    value=f"{'🟩' * int(progress)}{'⬜' * (bar_length - int(progress))}")
+                await message.edit(embed=embed, content="", view=view)
             await message.edit(content="👍 `Finished import of Spotify to YouTube.`", embed=None)
             await asyncio.sleep(10)
             await message.delete()
@@ -752,11 +774,11 @@ class Music(commands.Cog):
         embed = discord.Embed(color=discord.Color.blurple(), title="Fetching song information...")
 
         self.logger.info(f"We received a {results.load_type} from Lavalink.")
-        if results.load_type == 'PLAYLIST_LOADED':
-            tracks = results.tracks
-            for track in tracks:
-                # Add all the tracks from the playlist to the queue.
+        if results.load_type == 'PLAYLIST':
+            # If the query was a playlist, we add all the tracks to the queue.
+            for track in results.tracks:
                 player.add(requester=ctx.author.id, track=track)
+            self.logger.debug(f"Queue length: {len(player.queue)}")
         elif results.load_type == 'SEARCH':
             # If the query was a search query, we take the top item from the search results.
             track = results.tracks[0]
@@ -1224,9 +1246,13 @@ class Music(commands.Cog):
     @commands.slash_command(name="clean", description="Cleanup spam in any channel")
     @commands.has_permissions(manage_messages=True)
     async def clean(self, ctx: discord.ApplicationContext, amount: int = 100):
+        # check if the bot has manage messages permission
+        if not ctx.channel.permissions_for(ctx.guild.me).manage_messages:
+            return await ctx.respond("⚠️ `I don't have the correct permissions for that. I need the MANAGE_MESSAGES "
+                                     "permission!`", ephemeral=True)
         await ctx.respond(f"👍 `Cleaning {amount} messages, please wait.`", delete_after=10, ephemeral=True)
         self.stop_import = True
-        await ctx.channel.purge(limit=amount, check=lambda m: m.author == ctx.bot.user)
+        await ctx.channel.purge(limit=amount, check=lambda m: m.author == ctx.bot.user and m.channel == ctx.channel)
 
     @commands.slash_command(name="display", description="Lost the display message? Use this command to get it back.")
     async def display(self, ctx: discord.ApplicationContext):
@@ -1238,6 +1264,55 @@ class Music(commands.Cog):
             await self.update_playing_message(ctx)
         else:
             return await ctx.respond('Nothing playing.', delete_after=5, ephemeral=True)
+
+    @commands.slash_command(name="search", description="Search for a song, and add it to the queue.")
+    @option(name="query", description="The song to search for", required=True)
+    @option(name="service", description="The service to search on", required=False, choices=["youtube", "spotify"])
+    async def search(self, ctx: discord.ApplicationContext, query: str, service: str = "youtube"):
+        async def dropdown_callback(interaction):
+            if interaction.custom_id == "select_track":
+                # get the track from the dropdown
+                track = results.tracks[int(interaction.selected_options[0])]
+                player.add(requester=ctx.author.id, track=track)
+                if not player.is_playing:
+                    player.play()
+                    embed = discord.Embed(color=discord.Color.blurple())
+                    embed.title = f'Awaiting song information...'
+                    self.playing_message = await ctx.channel.send(embed=embed)
+                return True
+        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+        if not ctx.author.voice or (player.is_connected and ctx.author.voice.channel.id != int(player.channel_id)):
+            return await ctx.respond('You\'re not in my voice channel!', delete_after=5, ephemeral=True)
+        await ctx.defer()
+        if service == "spotify":
+            # search using spotipy, then return a paginator with the results
+            results = sp.search(query, limit=10)
+            pprint(results)
+            if not results:
+                return await ctx.respond('Nothing found!', delete_after=10, ephemeral=True)
+            embed_data = {
+                "title": f"Search results for {query}",
+                "description": f"Showing 10 songs."
+            }
+            pages = paginator(items=results['tracks']['items'], embed_data=embed_data, per_page=10, current_info={},
+                              author=ctx.author.display_name)
+            page_iterator = Paginator(pages=pages, loop_pages=True)
+            await page_iterator.respond(ctx.interaction)
+        else:
+            results = await player.node.get_tracks(f'ytmsearch:{query}')
+            if not results or not results['tracks']:
+                return await ctx.respond('Nothing found!', delete_after=10, ephemeral=True)
+            elif results.load_type == LoadType.SEARCH:
+                options = [f"**{track.title}** by {track.author}" for track in results.tracks]
+                view = discord.ui.View()
+                view.add_item(DiscordDropDownSelect(
+                    options=options,
+                    placeholder="Select a song to add to the queue",
+                    custom_id="select_track"
+                ))
+                await ctx.respond("Select a song to add to the queue", view=view)
+            else:
+                await ctx.respond("Something went wrong!", delete_after=10, ephemeral=True)
 
 
 async def Generate_color(image_url):
@@ -1280,11 +1355,11 @@ def paginator(items, embed_data, author: str, current_info: dict, per_page=10, h
         :param current_info: The current song info dict.
         :return: A list of embeds."""
     pages = []
-    # Split the list into chunks of 10
+    # Split the list into chunks of per_page
     chunks = [items[i:i + per_page] for i in range(0, len(items), per_page)]
     # Check if the amount of chunks is larger than the hard limit
     if len(chunks) > hard_limit:
-        # If it is, then we will just return the first 100 pages
+        # If it is, then we will just return the first hard_limit pages
         chunks = chunks[:hard_limit]
     # Loop through the chunks
     index = 1
