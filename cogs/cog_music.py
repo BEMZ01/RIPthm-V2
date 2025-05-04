@@ -135,8 +135,9 @@ class LavalinkVoiceClient(discord.VoiceClient):
 class DiscordDropDownSelect(discord.ui.Select):
     def __init__(self, options: list, **kwargs):
         super().__init__(**kwargs)
-        for opt in options:
-            self.add_option(label=opt, value=opt)
+        # [{"label": "Option 1", "value": "option1"}, ...]
+        for option in options:
+            self.add_option(label=option['label'], value=option['value'])
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.send_message(f'You selected {self.values[0]}', ephemeral=True)
@@ -563,7 +564,7 @@ class Music(commands.Cog):
 
         # These are commands that require the bot to join a voice channel (i.e. initiating playback).
         # Commands such as volume/skip etc. don't require the bot to be in a voice channel so don't need listing here.
-        should_connect = ctx.command.name in ('play', 'pirate', 'quickplay')
+        should_connect = ctx.command.name in ('play', 'pirate', 'quickplay', 'search')
         if should_connect:
             if not ctx.author.voice or not ctx.author.voice.channel:
                 # Our cog_command_error handler catches this and sends it to the voice channel.
@@ -676,7 +677,8 @@ class Music(commands.Cog):
         # Check if the user input might be a URL. If it isn't, we can Lavalink do a YouTube search for it instead.
         # SoundCloud searching is possible by prefixing "scsearch:" instead.
         if not url_rx.match(query):
-            query = f'ytsearch:{query}'
+            # forward the query to the search
+            await self.search(ctx, query, player)
         if query.startswith('https://open.spotify.com/playlist/') or query.startswith(
                 "https://open.spotify.com/album/"):
             self.stop_import = False
@@ -1267,52 +1269,76 @@ class Music(commands.Cog):
 
     @commands.slash_command(name="search", description="Search for a song, and add it to the queue.")
     @option(name="query", description="The song to search for", required=True)
-    @option(name="service", description="The service to search on", required=False, choices=["youtube", "spotify"])
-    async def search(self, ctx: discord.ApplicationContext, query: str, service: str = "youtube"):
+    @option(name="service", description="The music provider to search with", required=False, choices=["youtube", "spotify",
+                                                                                           "youtube_music"],
+            default="youtube_music")
+    async def search(self, ctx: discord.ApplicationContext, query: str, service: str = "youtube_music"):
         async def dropdown_callback(interaction):
-            if interaction.custom_id == "select_track":
-                # get the track from the dropdown
-                track = results.tracks[int(interaction.selected_options[0])]
-                player.add(requester=ctx.author.id, track=track)
-                if not player.is_playing:
-                    player.play()
-                    embed = discord.Embed(color=discord.Color.blurple())
-                    embed.title = f'Awaiting song information...'
-                    self.playing_message = await ctx.channel.send(embed=embed)
-                return True
+            await interaction.message.edit(content=f"Good choice!\n`Adding {interaction.data['values'][0]} to the queue.`", view=None)
+            track_uri = interaction.data['values'][0]
+            player = self.bot.lavalink.player_manager.get(interaction.guild.id)
+            if "spotify" in track_uri:
+                sp_track = sp.track(track_uri)
+                query = f'ytmsearch:{sp_track["name"]} {sp_track["artists"][0]["name"]}'
+                results = await player.node.get_tracks(query)
+            else:
+                results = await player.node.get_tracks(track_uri)
+
+            if not results or not results['tracks']:
+                return await interaction.response.send_message("Failed to fetch the track.", ephemeral=True)
+            track = results['tracks'][0]
+            player.add(requester=interaction.user.id, track=track)
+            if not player.is_playing:
+                await player.play()
+                embed = discord.Embed(color=discord.Color.blurple())
+                embed.title = f'Awaiting song information...'
+                self.playing_message = await interaction.channel.send(embed=embed)
+            await asyncio.sleep(5)
+            await interaction.message.delete()
+
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
         if not ctx.author.voice or (player.is_connected and ctx.author.voice.channel.id != int(player.channel_id)):
             return await ctx.respond('You\'re not in my voice channel!', delete_after=5, ephemeral=True)
+
         await ctx.defer()
+
+        options = []
         if service == "spotify":
-            # search using spotipy, then return a paginator with the results
-            results = sp.search(query, limit=10)
-            pprint(results)
-            if not results:
+            results = sp.search(q=query, type="track", limit=10)
+            if not results or not results['tracks']['items']:
                 return await ctx.respond('Nothing found!', delete_after=10, ephemeral=True)
-            embed_data = {
-                "title": f"Search results for {query}",
-                "description": f"Showing 10 songs."
-            }
-            pages = paginator(items=results['tracks']['items'], embed_data=embed_data, per_page=10, current_info={},
-                              author=ctx.author.display_name)
-            page_iterator = Paginator(pages=pages, loop_pages=True)
-            await page_iterator.respond(ctx.interaction)
+            options = [{"value": f"{track['uri']}",
+                        "label": f"{track['name']} by {track['artists'][0]['name']}"} for track in
+                       results['tracks']['items']]
         else:
-            results = await player.node.get_tracks(f'ytmsearch:{query}')
+            if service == "youtube_music":
+                results = await player.node.get_tracks(f'ytmsearch:{query}')
+            elif service == "youtube":
+                results = await player.node.get_tracks(f'ytsearch:{query}')
+            else:
+                results = await player.node.get_tracks(query)
             if not results or not results['tracks']:
                 return await ctx.respond('Nothing found!', delete_after=10, ephemeral=True)
             elif results.load_type == LoadType.SEARCH:
-                options = [f"**{track.title}** by {track.author}" for track in results.tracks]
-                view = discord.ui.View()
-                view.add_item(DiscordDropDownSelect(
-                    options=options,
-                    placeholder="Select a song to add to the queue",
-                    custom_id="select_track"
-                ))
-                await ctx.respond("Select a song to add to the queue", view=view)
+                # limit to 25 results (discord limit)
+                # options = [{"value": track.uri, "label": f"{track.title} by {track.author}"} for track in
+                #            results['tracks']]
+                options = [{"value": track.uri, "label": f"{track.title} by {track.author}"} for track in
+                            results.tracks[:25]]
             else:
                 await ctx.respond("Something went wrong!", delete_after=10, ephemeral=True)
+        if options:
+            self.logger.debug(options)
+            view = discord.ui.View()
+            view.add_item(DiscordDropDownSelect(
+                options=options,
+                placeholder=f"Showing {len(options)} results for {query}",
+                custom_id="select_track"
+            ))
+            view.children[0].callback = dropdown_callback
+            await ctx.respond("Select a song to add to the queue", view=view, ephemeral=True)
+        else:
+            return await ctx.respond('Nothing found!', delete_after=10, ephemeral=True)
 
 
 async def Generate_color(image_url):
