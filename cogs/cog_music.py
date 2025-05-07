@@ -195,9 +195,21 @@ class Music(commands.Cog):
                        'lavalink') or self.bot.lavalink is None:  # This ensures the client isn't overwritten during
             # cog reloads.
             self.bot.lavalink = lavalink.Client(self.bot.user.id)
-            self.bot.lavalink.add_node(os.getenv("LAVA_ADDR"), int(os.getenv("LAVA_PORT")), os.getenv("LAVA_TOKEN"),
-                                       'eu',
-                                       'default-node')
+            addr = os.getenv("LAVA_ADDR")
+            port = os.getenv("LAVA_PORT")
+            token = os.getenv("LAVA_TOKEN")
+            if " " in addr:
+                addr = addr.split(" ")
+                port = port.split(" ")
+                token = token.split(" ")
+                for i in range(len(addr)):
+                    self.logger.info(f"({i + 1}/{len(addr)}) Adding node {addr[i]}:{port[i]}")
+                    self.bot.lavalink.add_node(addr[i], int(port[i]), token[i], 'eu', f'node-{addr[i]}:{port[i]}')
+            else:
+                self.logger.info(f"Adding default-node {addr}:{port}")
+                self.bot.lavalink.add_node(os.getenv("LAVA_ADDR"), int(os.getenv("LAVA_PORT")), os.getenv("LAVA_TOKEN"),
+                                           'eu',
+                                           'default-node')
             self.bot.lavalink.add_event_hook(self.track_hook)
             await asyncio.sleep(2.5)
             try:
@@ -600,7 +612,6 @@ class Music(commands.Cog):
             # To save on resources, we can tell the bot to disconnect from the voice channel.
             guild_id = event.player.guild_id
             guild = self.bot.get_guild(guild_id)
-            # wait for a second
             await asyncio.sleep(5)
             if not event.player.is_playing and not event.player.queue:
                 self.logger.info("Queue ended, disconnecting...")
@@ -646,7 +657,7 @@ class Music(commands.Cog):
     async def play(self, ctx: discord.ApplicationContext, *, query: str, shuffle: bool = False,
                    source: str = "youtube_music"):
         """ Searches and plays a song from a given query. """
-        await ctx.defer()
+        await ctx.defer(ephemeral=True)
         # Get the player for this guild from cache.
         if not ctx.guild:
             return
@@ -677,8 +688,13 @@ class Music(commands.Cog):
         # Check if the user input might be a URL. If it isn't, we can Lavalink do a YouTube search for it instead.
         # SoundCloud searching is possible by prefixing "scsearch:" instead.
         if not url_rx.match(query):
-            # forward the query to the search
-            await self.search(ctx, query, player)
+            if source == "direct":
+                # called from within the bot - use top result
+                query = query if query.startswith("ytmsearch:") else f"ytmsearch:{query}"
+            else:
+                # forward the query to the search
+                await self.search(ctx, query, "cmd" + source)
+                return
         if query.startswith('https://open.spotify.com/playlist/') or query.startswith(
                 "https://open.spotify.com/album/"):
             self.stop_import = False
@@ -687,7 +703,10 @@ class Music(commands.Cog):
                 delete_after=10, ephemeral=True)
             player = self.bot.lavalink.player_manager.get(ctx.guild.id)
             message = await ctx.send("🔁")
+            t_before = time.time()
             tracks, name = await self.get_playlist_songs(query)
+            t_after = time.time()
+            self.logger.info(f"Time taken to get tracks: {t_after - t_before}")
             if shuffle:
                 random.shuffle(tracks)
             try:
@@ -696,7 +715,7 @@ class Music(commands.Cog):
                 elif "/playlist/" in query:
                     playlist_info = sp.playlist(query)
             except spotipy.SpotifyException as e:
-                await ctx.respond(f"👎 `Failed to import Spotify playlist. ({e})`\nThe playlist might be private.",
+                await ctx.respond(f"👎 `Failed to import Spotify playlist. ({e})`\nIs the playlist private?",
                                   ephemeral=True, delete_after=10)
                 await message.delete()
                 return
@@ -775,7 +794,6 @@ class Music(commands.Cog):
 
         embed = discord.Embed(color=discord.Color.blurple(), title="Fetching song information...")
 
-        self.logger.info(f"We received a {results.load_type} from Lavalink.")
         if results.load_type == 'PLAYLIST':
             # If the query was a playlist, we add all the tracks to the queue.
             for track in results.tracks:
@@ -813,33 +831,51 @@ class Music(commands.Cog):
                 song = activity.title
                 artist = activity.artist
                 query = f'{song} {artist}'
-                await self.play(ctx, query=query)
+                await self.play(ctx, query=query, source="direct")
                 return await ctx.respond(f"Playing {song} by {artist} from your status!", ephemeral=True,
                                          delete_after=10)
         return await ctx.respond("I can't see the spotify status. Are you listening to spotify?", ephemeral=True,
                                  delete_after=10)
 
     async def get_playlist_songs(self, playlist):
+        """
+        Fetch all songs from a Spotify playlist or album efficiently.
+        :param playlist: Spotify playlist or album URL.
+        :return: A tuple containing the list of tracks and the playlist/album name.
+        """
         try:
+            # Determine if the input is a playlist or album
             if "/album/" in playlist:
                 playlist_info = sp.album(playlist)
+                tracks = playlist_info['tracks']
             elif "/playlist/" in playlist:
                 playlist_info = sp.playlist(playlist)
+                tracks = playlist_info['tracks']
             else:
                 return False, "Not a playlist or album"
+            total_tracks = tracks['total']
+            self.logger.info(f"Fetching {total_tracks} tracks from {playlist_info['name']}...")
+            # Semaphore to limit concurrent requests
+            semaphore = asyncio.Semaphore(10)  # Adjust concurrency level as needed
+
+            async def fetch_page(offset):
+                async with semaphore:
+                    try:
+                        return sp.playlist_items(playlist, offset=offset, limit=100)['items']
+                    except spotipy.SpotifyException as e:
+                        self.logger.error(f"Error fetching page at offset {offset}: {e}")
+                        return []
+
+            # Create tasks for all pages
+            tasks = [fetch_page(offset) for offset in range(0, total_tracks, 100)]
+            all_tracks = await asyncio.gather(*tasks)
+            # Flatten the list of tracks
+            all_tracks = [track for page in all_tracks for track in page]
+            self.logger.info(f"Successfully fetched {len(all_tracks)} tracks.")
+            return all_tracks, playlist_info['name']
         except Exception as e:
-            self.logger.error(f"Failed to get playlist info: {e.with_traceback(None)}")
-            return False, e
-        songs = deepcopy(playlist_info['tracks']['items'])
-        if not playlist_info['tracks']['next']:
-            return songs, str(playlist_info['name'])
-        else:
-            while playlist_info['tracks']['next']:
-                playlist_info['tracks'] = sp.next(playlist_info['tracks'])
-                songs.extend(playlist_info['tracks']['items'])
-                if self.stop_import:
-                    return False, "Stopped"
-            return songs, playlist_info['name']
+            self.logger.error(f"Error fetching playlist songs: {e}")
+            return False, str(e)
 
     @commands.slash_command(name="lowpass", description="Set the lowpass filter strength")
     async def lowpass(self, ctx: discord.ApplicationContext, strength: float):
@@ -1072,7 +1108,7 @@ class Music(commands.Cog):
     @commands.slash_command(name="queue", description="Show the queue")
     @option(name="limit", description="The amount of songs to show", required=False)
     async def queue(self, ctx: discord.ApplicationContext, limit: int = 10):
-        await ctx.defer()
+        await ctx.defer(ephemeral=True)
         """ Shows the player's queue. in a paginator response"""
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
         if not ctx.author.voice or (player.is_connected and ctx.author.voice.channel.id != int(player.channel_id)):
@@ -1083,12 +1119,10 @@ class Music(commands.Cog):
             "title": f"Queue for {ctx.guild.name}",
             "description": f"Showing {limit} songs."
         }
-        self.logger.info("Generating pages")
         now_playing = {"title": player.current.title, "thumb": player.current.uri, "author": player.current.author}
         name = ctx.author.display_name
         pages = paginator(items=player.queue, embed_data=embed_data, per_page=limit, current_info=now_playing,
                           author=name)
-        self.logger.info("Sending pages")
         page_iterator = Paginator(pages=pages, loop_pages=True)
         await page_iterator.respond(ctx.interaction)
 
@@ -1191,7 +1225,9 @@ class Music(commands.Cog):
             return await ctx.respond('Nothing playing.', delete_after=5, ephemeral=True)
 
     async def cb_stop_import(self, ctx):
-        self.stop_import = True
+        # check to see if the user is the one who started the import
+        if ctx.user.id != self.bot.user.id:
+            self.stop_import = True
 
     @commands.slash_command(name="pirate", description="Add the pirate shanties playlist to the queue")
     @option(name="shuffle", description="Shuffle the playlist", required=False)
@@ -1269,12 +1305,18 @@ class Music(commands.Cog):
 
     @commands.slash_command(name="search", description="Search for a song, and add it to the queue.")
     @option(name="query", description="The song to search for", required=True)
-    @option(name="service", description="The music provider to search with", required=False, choices=["youtube", "spotify",
-                                                                                           "youtube_music"],
+    @option(name="service", description="The music provider to search with", required=False,
+            choices=["youtube", "spotify",
+                     "youtube_music"],
             default="youtube_music")
     async def search(self, ctx: discord.ApplicationContext, query: str, service: str = "youtube_music"):
         async def dropdown_callback(interaction):
-            await interaction.message.edit(content=f"Good choice!\n`Adding {interaction.data['values'][0]} to the queue.`", view=None)
+            try:
+                await interaction.message.edit(
+                    content=f"Good choice! Adding {interaction.data['values'][0]} to the queue.", view=None)
+            except discord.errors.NotFound:
+                self.logger.warning(f"Failed to edit message: {interaction.message.id}")
+                pass
             track_uri = interaction.data['values'][0]
             player = self.bot.lavalink.player_manager.get(interaction.guild.id)
             if "spotify" in track_uri:
@@ -1294,13 +1336,21 @@ class Music(commands.Cog):
                 embed.title = f'Awaiting song information...'
                 self.playing_message = await interaction.channel.send(embed=embed)
             await asyncio.sleep(5)
-            await interaction.message.delete()
+            try:
+                await interaction.message.delete()
+            except discord.errors.NotFound:
+                self.logger.warning(f"Failed to delete message: {interaction.message.id}")
+                pass
 
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
         if not ctx.author.voice or (player.is_connected and ctx.author.voice.channel.id != int(player.channel_id)):
             return await ctx.respond('You\'re not in my voice channel!', delete_after=5, ephemeral=True)
 
-        await ctx.defer()
+        # only defer if this subroutine has not been called from another command
+        if "cmd" not in service:
+            await ctx.defer(ephemeral=True)
+        else:
+            service = service.replace("cmd", "")
 
         options = []
         if service == "spotify":
@@ -1323,18 +1373,18 @@ class Music(commands.Cog):
                 # limit to 25 results (discord limit)
                 # options = [{"value": track.uri, "label": f"{track.title} by {track.author}"} for track in
                 #            results['tracks']]
-                options = [{"value": track.uri, "label": f"{track.title} by {track.author}"} for track in
-                            results.tracks[:25]]
+                options = [{"value": track.uri, "label": limit(f"{track.title} by {track.author}", 100)} for track in
+                           results.tracks[:25]]
             else:
                 await ctx.respond("Something went wrong!", delete_after=10, ephemeral=True)
         if options:
             self.logger.debug(options)
             view = discord.ui.View()
-            view.add_item(DiscordDropDownSelect(
+            select = DiscordDropDownSelect(
                 options=options,
-                placeholder=f"Showing {len(options)} results for {query}",
-                custom_id="select_track"
-            ))
+                placeholder=f"Showing {len(options)} results for {query}"
+            )
+            view.add_item(select)
             view.children[0].callback = dropdown_callback
             await ctx.respond("Select a song to add to the queue", view=view, ephemeral=True)
         else:
@@ -1402,6 +1452,19 @@ def paginator(items, embed_data, author: str, current_info: dict, per_page=10, h
         # Add the embed to the pages
         pages.append(embed)
     return pages
+
+
+def limit(string: str, limit: int):
+    """
+    Limit the length of a string
+
+    :param string: The string to limit
+    :param limit: The limit of the string
+    :return: The limited string
+    """
+    if len(string) > limit:
+        return string[:limit - 3] + "..."
+    return string
 
 
 def setup(bot):
