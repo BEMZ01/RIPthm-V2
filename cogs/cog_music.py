@@ -702,7 +702,8 @@ class Music(commands.Cog):
                 "👍 `Started import of Spotify to YouTube, please watch the next message for progress.`",
                 delete_after=10, ephemeral=True)
             player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-            message = await ctx.send("🔁")
+            message = await ctx.send("🎶`Converting Spotify playlist to YouTube. For large playlists (2.5k+) this may "
+                                     "take upto 30 seconds...`")
             t_before = time.time()
             tracks, name = await self.get_playlist_songs(query)
             t_after = time.time()
