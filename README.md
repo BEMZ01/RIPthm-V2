@@ -15,7 +15,12 @@
 
 # RipthmV2
 
-<br>RipthmV2 is a feature-rich Discord music bot built using Python. It leverages the Lavalink audio streaming library to provide high-quality music playback and includes advanced features such as Spotify integration, lyrics fetching, and custom audio filters.
+<br>RipthmV2 is a feature-rich Discord music bot built using Python. It leverages the Lavalink audio streaming library to provide high-quality music playback and includes advanced features such as Spotify integration, lyrics fetching, custom audio filters and sponsorblock integration. Find the links to invite the bot here, I can't promise the bots will be online 24/7, if not see below on how to host it youself!
+
+## Invite Links
+
+![Add RIPthm here](https://discord.com/oauth2/authorize?client_id=887006229195542598)<br>
+![Add RIPthm 2 here](https://discord.com/oauth2/authorize?client_id=888547452515409950&permissions=277062412608&scope=applications.commands+bot)
 
 ## Features
 
@@ -23,7 +28,7 @@
 - **Queue Management**: Add, remove, shuffle, and loop songs in the queue.
 - **Audio Filters**: Apply filters like nightcore, vaporwave, karaoke, and lowpass.
 - **Lyrics Integration**: Fetch song lyrics using the Genius API.
-- **SponsorBlock Integration**: Automatically skip sponsored segments in YouTube videos.
+- **SponsorBlock (Ad block) Integration**: Automatically skip non-music (sponsorships, etc.) segments in YouTube videos.
 - **Admin Commands**: Manage bot cogs, restart, update, and view logs.
 - **Customizable**: Easily configure the bot using environment variables.
 
