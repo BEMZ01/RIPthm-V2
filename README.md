@@ -19,8 +19,8 @@
 
 ## Invite Links
 
-![Add RIPthm here](https://discord.com/oauth2/authorize?client_id=887006229195542598)<br>
-![Add RIPthm 2 here](https://discord.com/oauth2/authorize?client_id=888547452515409950&permissions=277062412608&scope=applications.commands+bot)
+[Add RIPthm here](https://discord.com/oauth2/authorize?client_id=887006229195542598)<br>
+[Add RIPthm 2 here](https://discord.com/oauth2/authorize?client_id=888547452515409950&permissions=277062412608&scope=applications.commands+bot)
 
 ## Features
 
