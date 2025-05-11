@@ -1307,89 +1307,206 @@ class Music(commands.Cog):
     @commands.slash_command(name="search", description="Search for a song, and add it to the queue.")
     @option(name="query", description="The song to search for", required=True)
     @option(name="service", description="The music provider to search with", required=False,
-            choices=["youtube", "spotify",
-                     "youtube_music"],
+            choices=["youtube", "spotify", "youtube_music"],
             default="youtube_music")
     async def search(self, ctx: discord.ApplicationContext, query: str, service: str = "youtube_music"):
-        async def dropdown_callback(interaction):
-            try:
-                await interaction.message.edit(
-                    content=f"Good choice! Adding {interaction.data['values'][0]} to the queue.", view=None)
-            except discord.errors.NotFound:
-                self.logger.warning(f"Failed to edit message: {interaction.message.id}")
-                pass
-            track_uri = interaction.data['values'][0]
-            player = self.bot.lavalink.player_manager.get(interaction.guild.id)
-            if "spotify" in track_uri:
-                sp_track = sp.track(track_uri)
-                query = f'ytmsearch:{sp_track["name"]} {sp_track["artists"][0]["name"]}'
-                results = await player.node.get_tracks(query)
+        async def dropdown_callback(interaction: discord.Interaction):
+            await interaction.response.defer(ephemeral=True)
+
+            selected_value = interaction.data['values'][0]
+            
+            if not hasattr(self.bot, 'lavalink') or self.bot.lavalink is None or not self.bot.lavalink.node_manager.nodes:
+                self.logger.error("Lavalink is not initialized/ready on the bot object in dropdown.")
+                await interaction.edit_original_response(content="Music system error: Lavalink not ready.", view=None)
+                return
+            if not interaction.guild_id:
+                self.logger.error("Interaction guild_id is None in dropdown_callback.")
+                await interaction.edit_original_response(content="Error: Guild context not found.", view=None)
+                return
+                
+            player = self.bot.lavalink.player_manager.get(interaction.guild_id)
+            if player is None: 
+                player = self.bot.lavalink.player_manager.create(interaction.guild_id)
+
+            actual_track_title = "Track"
+            actual_track_author = ""
+            results_lavalink = None
+
+            if selected_value.startswith("spotify:track:"):
+                try:
+                    sp_track_info = sp.track(selected_value)
+                    actual_track_title = sp_track_info['name']
+                    actual_track_author = sp_track_info['artists'][0]['name']
+                    query_for_lavalink = f'ytmsearch:{actual_track_title} {actual_track_author}'
+                    results_lavalink = await player.node.get_tracks(query_for_lavalink)
+                except Exception as e:
+                    self.logger.error(f"Error processing Spotify track URI {selected_value}: {e}")
+                    await interaction.edit_original_response(content=f"Error processing Spotify track: {e}", view=None)
+                    return
             else:
-                results = await player.node.get_tracks(track_uri)
+                results_lavalink = await player.node.get_tracks(selected_value)
+                if results_lavalink and results_lavalink.tracks:
+                    actual_track_title = results_lavalink.tracks[0].title
+                    actual_track_author = results_lavalink.tracks[0].author
+            
+            final_track_display_name = f"{actual_track_title} by {actual_track_author}" if actual_track_author else actual_track_title
 
-            if not results or not results['tracks']:
-                return await interaction.response.send_message("Failed to fetch the track.", ephemeral=True)
-            track = results['tracks'][0]
-            player.add(requester=interaction.user.id, track=track)
+            if not results_lavalink or not results_lavalink.tracks:
+                await interaction.edit_original_response(content=f"Could not find track information for: {final_track_display_name}.", view=None)
+                return
+
+            track_to_play = results_lavalink.tracks[0]
+            player.add(requester=interaction.user.id, track=track_to_play)
+
+            response_message_content = ""
+            playback_started_successfully = False
+            
+            user_vc_channel = interaction.user.voice.channel if interaction.user.voice else None
+
+            if not user_vc_channel:
+                if not player.is_playing and len(player.queue) == 1 and player.queue[0].identifier == track_to_play.identifier:
+                     player.queue.pop(0)
+                     response_message_content = f"🎶 Track **{final_track_display_name}** removed. Join a voice channel to play music."
+                else:
+                    response_message_content = f"🎶 Track **{final_track_display_name}** added to queue. Join a voice channel to play."
+                await interaction.edit_original_response(content=response_message_content, view=None)
+                return
+
+            bot_vc = interaction.guild.voice_client if interaction.guild else None
+
             if not player.is_playing:
-                await player.play()
-                embed = discord.Embed(color=discord.Color.blurple())
-                embed.title = f'Awaiting song information...'
-                self.playing_message = await interaction.channel.send(embed=embed)
-            await asyncio.sleep(5)
-            try:
-                await interaction.message.delete()
-            except discord.errors.NotFound:
-                self.logger.warning(f"Failed to delete message: {interaction.message.id}")
-                pass
+                connected_or_moved = False
+                if not bot_vc:
+                    try:
+                        await user_vc_channel.connect(cls=LavalinkVoiceClient)
+                        player.store('VoiceChannel', user_vc_channel.id)
+                        player.store('channel', interaction.channel_id)
+                        connected_or_moved = True
+                    except Exception as e:
+                        self.logger.error(f"Dropdown: Failed to connect to {user_vc_channel.name}: {e}")
+                        if player.queue and player.queue[0].identifier == track_to_play.identifier: player.queue.pop(0)
+                        response_message_content = f"Error: Could not join {user_vc_channel.name}. Track removed."
+                elif bot_vc.channel.id != user_vc_channel.id:
+                    try:
+                        await bot_vc.move_to(user_vc_channel)
+                        player.store('VoiceChannel', user_vc_channel.id)
+                        player.store('channel', interaction.channel_id)
+                        connected_or_moved = True
+                    except Exception as e:
+                        self.logger.error(f"Dropdown: Failed to move to {user_vc_channel.name}: {e}")
+                        if player.queue and player.queue[0].identifier == track_to_play.identifier: player.queue.pop(0)
+                        response_message_content = f"Error: Could not move to {user_vc_channel.name}. Track removed."
+                else: 
+                    connected_or_moved = True
+                    player.store('channel', interaction.channel_id) 
+                
+                if connected_or_moved:
+                    await player.play()
+                    playback_started_successfully = True
+                    response_message_content = f"🎵 Now playing: **{final_track_display_name}**"
+            else: 
+                if bot_vc and bot_vc.channel.id != user_vc_channel.id:
+                    response_message_content = f"🎶 Track **{final_track_display_name}** added. I'm playing in {bot_vc.channel.mention}."
+                else:
+                    response_message_content = f"🎶 Track **{final_track_display_name}** added to queue."
+            
+            await interaction.edit_original_response(content=response_message_content, view=None)
+            current_playing_msg = self.get_playing_message(interaction.guild_id)
 
-        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-        if not ctx.author.voice or (player.is_connected and ctx.author.voice.channel.id != int(player.channel_id)):
-            return await ctx.respond('You\'re not in my voice channel!', delete_after=5, ephemeral=True)
+            if playback_started_successfully and interaction.channel:
+                if current_playing_msg and current_playing_msg.channel.id != interaction.channel_id:
+                    try: 
+                        await current_playing_msg.delete()
+                        self.delete_playing_message_ref(interaction.guild_id)
+                    except discord.errors.NotFound: 
+                        self.delete_playing_message_ref(interaction.guild_id)
+                    except Exception as e: 
+                        self.logger.error(f"Error deleting old playing_message for guild {interaction.guild_id}: {e}")
+                        self.delete_playing_message_ref(interaction.guild_id)
+                    current_playing_msg = None 
 
-        # only defer if this subroutine has not been called from another command
-        if "cmd" not in service:
+                if current_playing_msg is None :
+                    embed = discord.Embed(color=discord.Color.blurple(), title="Fetching track information...")
+                    try:
+                         new_msg = await interaction.channel.send(embed=embed)
+                         self.set_playing_message(interaction.guild_id, new_msg)
+                    except discord.errors.HTTPException as e:
+                        self.logger.error(f"Failed to send playing_message in dropdown_callback for guild {interaction.guild_id}: {e}")
+                    except AttributeError:
+                         self.logger.error(f"interaction.channel is None or interaction object is malformed for guild {interaction.guild_id}.")
+        
+        if not hasattr(self.bot, 'lavalink') or self.bot.lavalink is None or not self.bot.lavalink.node_manager.nodes:
+            await ctx.respond("Music system is not ready. Please try again later.", ephemeral=True)
+            return
+        if not ctx.guild_id: 
+            await ctx.respond("This command can only be used in a server.", ephemeral=True)
+            return
+            
+        player = self.bot.lavalink.player_manager.get(ctx.guild_id)
+        if player is None: 
+             player = self.bot.lavalink.player_manager.create(ctx.guild_id)
+
+        is_internal_call = "cmd" in service 
+        if not is_internal_call:
             await ctx.defer(ephemeral=True)
         else:
             service = service.replace("cmd", "")
 
         options = []
         if service == "spotify":
-            results = sp.search(q=query, type="track", limit=10)
-            if not results or not results['tracks']['items']:
-                return await ctx.respond('Nothing found!', delete_after=10, ephemeral=True)
-            options = [{"value": f"{track['uri']}",
-                        "label": f"{track['name']} by {track['artists'][0]['name']}"} for track in
-                       results['tracks']['items']]
+            results_spotify = sp.search(q=query, type="track", limit=10)
+            if not results_spotify or not results_spotify['tracks']['items']:
+                response_content = 'Nothing found on Spotify!'
+                if is_internal_call: await ctx.edit_original_response(content=response_content, view=None)
+                else: await ctx.respond(response_content, ephemeral=True, delete_after=10)
+                return
+            options = [{"value": track['uri'],
+                        "label": limit(f"{track['name']} by {track['artists'][0]['name']}", 100)} for track in
+                       results_spotify['tracks']['items']]
         else:
+            search_query_for_lavalink = query
             if service == "youtube_music":
-                results = await player.node.get_tracks(f'ytmsearch:{query}')
+                search_query_for_lavalink = f'ytmsearch:{query}'
             elif service == "youtube":
-                results = await player.node.get_tracks(f'ytsearch:{query}')
-            else:
-                results = await player.node.get_tracks(query)
-            if not results or not results['tracks']:
-                return await ctx.respond('Nothing found!', delete_after=10, ephemeral=True)
-            elif results.load_type == LoadType.SEARCH:
-                # limit to 25 results (discord limit)
-                # options = [{"value": track.uri, "label": f"{track.title} by {track.author}"} for track in
-                #            results['tracks']]
+                search_query_for_lavalink = f'ytsearch:{query}'
+            
+            results_lavalink_search = await player.node.get_tracks(search_query_for_lavalink)
+            
+            if not results_lavalink_search or not results_lavalink_search.tracks:
+                response_content = 'Nothing found!'
+                if is_internal_call: await ctx.edit_original_response(content=response_content, view=None)
+                else: await ctx.respond(response_content, ephemeral=True, delete_after=10)
+                return
+            
+            if results_lavalink_search.load_type == lavalink.LoadType.SEARCH:
                 options = [{"value": track.uri, "label": limit(f"{track.title} by {track.author}", 100)} for track in
-                           results.tracks[:25]]
+                           results_lavalink_search.tracks[:25]]
+            elif results_lavalink_search.load_type == lavalink.LoadType.TRACK:
+                 options = [{"value": results_lavalink_search.tracks[0].uri, "label": limit(f"{results_lavalink_search.tracks[0].title} by {results_lavalink_search.tracks[0].author}", 100)}]
             else:
-                await ctx.respond("Something went wrong!", delete_after=10, ephemeral=True)
+                response_content = 'Nothing found or unsupported link type for search!'
+                if is_internal_call: await ctx.edit_original_response(content=response_content, view=None)
+                else: await ctx.respond(response_content, ephemeral=True, delete_after=10)
+                return
+
         if options:
-            self.logger.debug(options)
-            view = discord.ui.View()
-            select = DiscordDropDownSelect(
+            view = discord.ui.View(timeout=180) # Added timeout to the view
+            select_menu = DiscordDropDownSelect(
                 options=options,
-                placeholder=f"Showing {len(options)} results for {query}"
+                placeholder=f"Found {len(options)} results for \"{query}\""
             )
-            view.add_item(select)
-            view.children[0].callback = dropdown_callback
-            await ctx.respond("Select a song to add to the queue", view=view, ephemeral=True)
+            select_menu.callback = dropdown_callback
+            view.add_item(select_menu)
+
+            response_content = "Select a song to add to the queue:"
+            if is_internal_call:
+                await ctx.edit_original_response(content=response_content, view=view)
+            else:
+                await ctx.respond(response_content, view=view, ephemeral=True)
         else:
-            return await ctx.respond('Nothing found!', delete_after=10, ephemeral=True)
+            response_content = 'Nothing found!'
+            if is_internal_call: await ctx.edit_original_response(content=response_content, view=None)
+            else: await ctx.respond(response_content, ephemeral=True, delete_after=10)
 
 
 async def Generate_color(image_url):
