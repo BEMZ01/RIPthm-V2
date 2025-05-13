@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png" alt="Project Logo" width="200">
+  <img src="logo.png" alt="Project Logo">
 </p>
 <div align="center">
 
@@ -7,7 +7,6 @@
    <a href="">![Last Commit](https://img.shields.io/github/last-commit/BEMZ01/Ripthm-V2)</a>
    <a href="">![Issues](https://img.shields.io/github/issues/BEMZ01/Ripthm-V2)</a>
    <a href="">![Forks](https://img.shields.io/github/forks/BEMZ01/Ripthm-V2)</a>
-   <br>
    <a href="">![Python](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python&logoColor=white)</a>
    <a href="">![Pycord](https://img.shields.io/badge/Pycord-2.4%2B-blueviolet?logo=discord&logoColor=white)</a>
    <a href="">![License](https://img.shields.io/badge/License-MIT-green)</a>
