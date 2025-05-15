@@ -771,8 +771,6 @@ class Music(commands.Cog):
                 # called from within the bot - use top result
                 query = query if query.startswith("ytmsearch:") else f"ytmsearch:{query}"
             else:
-                # forward the query to the search
-                print(f"Need to search query: {query}, source: {source}")
                 await self.search(ctx, query, "cmd" + source)
                 return
         if query.startswith('https://open.spotify.com/playlist/') or query.startswith(
