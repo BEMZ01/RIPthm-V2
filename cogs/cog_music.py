@@ -653,28 +653,32 @@ class Music(commands.Cog):
                 self.logger.info("Track ended, getting recommendations...")
                 tracks = self.get_similar_tracks(self.last_track)
                 if tracks is None:
-                    self.logger.info("No similar tracks found.")
+                    self.logger.info("No similar tracks found. Falling back to YouTube search")
                     tracks = await player.node.get_tracks(f"ytmsearch:{self.last_track.author}")
-                    if tracks and tracks['tracks']:
-                        tracks = [track['info']['title'] for track in tracks['tracks']]
+                    # if there are more than 10 results, take the first 10 and replace tracks['tracks'] with them
+                    # TypeError: 'LoadResult' object does not support item assignment
+                    if len(tracks['tracks']) > 10:
+                        tracks = tracks['tracks'][:10]
+                        tracks = [f"{track['info']['title']} {track['info']['author']}" for track in tracks]
+                    elif tracks and tracks['tracks']:
+                        tracks = [f"{track['info']['title']} {track['info']['author']}" for track in tracks['tracks']]
                     else:
                         self.logger.info("No similar tracks found.")
-                        return
-                track = random.choice([track for track in tracks if track != self.last_track.title])
-                if track:
-                    # search lavalink for the track
-                    results = await player.node.get_tracks(f"ytmsearch:{track}")
-                    if results and results['tracks']:
-                        track = results['tracks'][0]
-                        player.add(track=track)
-                        if not player.is_playing:
-                            await player.play()
-                        self.logger.info("Playing recommended track.")
+
+                if tracks:
+                    for track in tracks:
+                        results = await player.node.get_tracks(f"ytmsearch:{track}")
+                        if results and results['tracks']:
+                            track = results['tracks'][0]
+                            player.add(track=track)
+                    if not player.is_playing:
+                        await player.play()
                 else:
                     self.logger.info("No similar tracks found.")
             else:
                 self.logger.info("Queue ended, disconnecting...")
                 await guild.voice_client.disconnect(force=True)
+
 
     def get_similar_tracks(self, track):
         if os.getenv('LASTFM_API_KEY') is None:
@@ -683,17 +687,21 @@ class Music(commands.Cog):
         try:
             if " - Topic" in track.author:
                 track.author = track.author.replace(" - Topic", "")
+            track.title = re.sub(r'\([^)]*\)', '', track.title)
+            track.title = re.sub(r'\[[^)]*\]', '', track.title)
+            track.title = track.title.strip()
             response = requests.get(
-                f"https://ws.audioscrobbler.com/2.0/?method=track.getsimilar&artist={track.author}&track={track.title}&api_key={os.getenv('LASTFM_API_KEY')}&format=json&limit=5&autocorrect=1"
+                f"https://ws.audioscrobbler.com/2.0/?method=track.getsimilar&artist={track.author}&track={track.title}&api_key={os.getenv('LASTFM_API_KEY')}&format=json&limit=10&autocorrect=1"
             )
             if response.status_code == 200:
                 data = response.json()
                 if 'similartracks' in data and 'track' in data['similartracks']:
                     tracks = data['similartracks']['track']
                     if tracks:
+                        tracks = {track['name']: track for track in tracks}.values()
                         tracks = sorted(tracks, key=lambda x: x['match'], reverse=True)
                         self.logger.info(f"Found {len(tracks)} similar tracks.")
-                        return [f"{track['name']} {track['artist']['name']}" for track in tracks]
+                        return (f"{track['name']} {track['artist']['name']}" for track in tracks)
             self.logger.error(f"Error fetching similar tracks: {response.text}")
         except Exception as e:
             self.logger.error(f"Exception in get_similar_tracks: {e}")
@@ -764,6 +772,7 @@ class Music(commands.Cog):
                 query = query if query.startswith("ytmsearch:") else f"ytmsearch:{query}"
             else:
                 # forward the query to the search
+                print(f"Need to search query: {query}, source: {source}")
                 await self.search(ctx, query, "cmd" + source)
                 return
         if query.startswith('https://open.spotify.com/playlist/') or query.startswith(
@@ -1535,7 +1544,7 @@ class Music(commands.Cog):
 
         options = []
         if service == "spotify":
-            results_spotify = sp.search(q=query, type="track", limit=10)
+            results_spotify = sp.search(q=query, type="track", limit=20)
             if not results_spotify or not results_spotify['tracks']['items']:
                 response_content = 'Nothing found on Spotify!'
                 if is_internal_call:
@@ -1558,27 +1567,24 @@ class Music(commands.Cog):
             if not results_lavalink_search or not results_lavalink_search.tracks:
                 response_content = 'Nothing found!'
                 if is_internal_call:
-                    await ctx.edit_original_response(content=response_content, view=None)
+                    await ctx.followup.send(content=response_content, ephemeral=True)
                 else:
                     await ctx.respond(response_content, ephemeral=True, delete_after=10)
                 return
 
-            if results_lavalink_search.load_type == lavalink.LoadType.SEARCH:
+            if (results_lavalink_search.load_type == LoadType.SEARCH or
+                    results_lavalink_search.load_type == lavalink.LoadType.TRACK):
                 options = [{"value": track.uri, "label": limit(f"{track.title} by {track.author}", 100)} for track in
-                           results_lavalink_search.tracks[:25]]
-            elif results_lavalink_search.load_type == lavalink.LoadType.TRACK:
-                options = [{"value": results_lavalink_search.tracks[0].uri, "label": limit(
-                    f"{results_lavalink_search.tracks[0].title} by {results_lavalink_search.tracks[0].author}", 100)}]
+                           results_lavalink_search.tracks[:25] if len(track.uri) < 100]
             else:
                 response_content = 'Nothing found or unsupported link type for search!'
                 if is_internal_call:
-                    await ctx.edit_original_response(content=response_content, view=None)
+                    await ctx.followup.send(content=response_content, ephemeral=True)
                 else:
                     await ctx.respond(response_content, ephemeral=True, delete_after=10)
                 return
-
         if options:
-            view = discord.ui.View(timeout=180)  # Added timeout to the view
+            view = discord.ui.View(timeout=180)
             select_menu = DiscordDropDownSelect(
                 options=options,
                 placeholder=f"Found {len(options)} results for \"{query}\""
@@ -1588,13 +1594,13 @@ class Music(commands.Cog):
 
             response_content = "Select a song to add to the queue:"
             if is_internal_call:
-                await ctx.edit_original_response(content=response_content, view=view)
+                await ctx.followup.send(content=response_content, view=view, ephemeral=True)
             else:
                 await ctx.respond(response_content, view=view, ephemeral=True)
         else:
             response_content = 'Nothing found!'
             if is_internal_call:
-                await ctx.edit_original_response(content=response_content, view=None)
+                await ctx.followup.send(content=response_content, ephemeral=True)
             else:
                 await ctx.respond(response_content, ephemeral=True, delete_after=10)
 
