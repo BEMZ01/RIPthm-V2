@@ -402,10 +402,13 @@ class Music(commands.Cog):
             client = channel.guild.voice_client
             if player.fetch('VoiceStatus') == "-1":  # We have been kicked from the channel
                 self.stop_import = True
-                await self.playing_message.channel.send("`I have been kicked from the voice channel.`\n||Something "
-                                                        "something use the disconnect command and stop admin abuse :(||",
-                                                        delete_after=10)
-                await self.playing_message.delete()
+                try:
+                    await self.playing_message.channel.send("`I have been kicked from the voice channel. :(`",
+                                                            delete_after=10)
+                    await self.playing_message.delete()
+                except discord.errors.Forbidden as e:
+                    self.logger.error(f"Error deleting playing message: {e}")
+                    self.playing_message = None
                 self.playing_message = None
                 await player.stop()
                 player.store("VoiceStatus", "0")
