@@ -291,7 +291,10 @@ class Music(commands.Cog):
             await ctx.respond(embed=embed, ephemeral=True, delete_after=10)
         self.logger.error(f"Error in {ctx.command.name}: {error}\n{tb}")
         user = self.bot.get_user(self.bot.owner_id)
-        await user.send(f"Error in {ctx.command.name}: {error}\n```{tb}```")
+        if len(f"Error in {ctx.command.name}: {error}\n```{tb}```") > 2000:
+            await user.send(f"Error in {ctx.command.name}: {error}", file=discord.File(tb, "traceback.txt"))
+        else:
+            await user.send(f"Error in {ctx.command.name}: {error}\n```{tb}```")
 
     async def handle_permission_error(self, ctx, missing_permission):
         """Handle permission errors by finding an alternative channel or DMing the user."""
