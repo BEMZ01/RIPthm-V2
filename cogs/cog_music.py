@@ -285,7 +285,6 @@ class Music(commands.Cog):
         elif isinstance(error, commands.MissingPermissions):
             await self.handle_permission_error(ctx, "manage_messages")
         if isinstance(error, commands.CommandInvokeError):
-
             embed = discord.Embed(title="Error", description=f"```{error.original}```", color=discord.Color.red())
             self.logger.error(f"Error in {ctx.command.name}: {error.original}\n{tb}")
             await ctx.respond(embed=embed, ephemeral=True, delete_after=10)
@@ -329,8 +328,13 @@ class Music(commands.Cog):
         """Handle cases where the bot cannot send messages in the current channel."""
         alternative_channel = await self.find_alternative_channel(ctx.guild)
         if alternative_channel:
-            await alternative_channel.send(f"<@{ctx.author.id}> I am missing permissions in {ctx.channel.mention}.",
-                                           embed=embed)
+            try:
+                await alternative_channel.send(f"<@{ctx.author.id}> I am missing permissions in {ctx.channel.mention}.",
+                                               embed=embed)
+            except AttributeError:
+                # ctx could be Interaction (to fix AttributeError: 'Interaction' object has no attribute 'author')
+                await alternative_channel.send(f"<@{ctx.user.id}> I am missing permissions in {ctx.channel.mention}.",
+                                               embed=embed)
         else:
             try:
                 await ctx.author.send(
@@ -605,8 +609,17 @@ class Music(commands.Cog):
                 try:
                     await self.playing_message.edit("", embed=embed, view=view)
                 except discord.errors.NotFound:
-                    self.logger.warning("Message not found, creating new one")
-                    self.playing_message = await self.playing_message.channel.send("", embed=embed, view=view)
+                    try:
+                        self.logger.warning("Message not found, creating new one")
+                        if self.playing_message is not None:
+                            self.playing_message = await self.playing_message.channel.send("", embed=embed, view=view)
+                    except discord.errors.Forbidden:
+                        self.logger.error("Bot cannot send messages in the current channel, skipping update.")
+                        await self.handle_missing_permissions(self.playing_message, discord.Embed(
+                            title="Error",
+                            description="I cannot send messages in this channel. Please check my permissions.",
+                            color=discord.Color.red()
+                        ))
 
     @update_playing_message.error
     async def update_playing_message_error(self, exception):
@@ -999,7 +1012,18 @@ class Music(commands.Cog):
         # the current track.
         if not player.is_playing or player.fetch('VoiceState') in ['-1', '0']:
             await player.play()
-            self.playing_message = await ctx.channel.send(embed=embed)
+            try:
+                self.playing_message = await ctx.channel.send(embed=embed)
+            except discord.errors.Forbidden:
+                self.logger.error("Bot does not have permission to send messages in this channel.")
+                # inform the user that the bot cannot send messages in this channel
+                await self.handle_missing_permissions(ctx, discord.Embed(
+                    title="Error",
+                    description=f"I cannot send messages in the {ctx.channel.name} channel. Please "
+                                f"check my permissions.",
+                    color=discord.Color.red()
+                ))
+                return
 
     @commands.slash_command(name="quickplay", description="Play a song from your status.")
     async def quickplay(self, ctx: discord.ApplicationContext):
@@ -1411,7 +1435,8 @@ class Music(commands.Cog):
     @commands.slash_command(name="pirate", description="Add the pirate shanties playlist to the queue")
     @option(name="shuffle", description="Shuffle the playlist", required=False)
     async def pirate(self, ctx: discord.ApplicationContext, shuffle: bool = False):
-        await self.play(ctx, query="https://open.spotify.com/playlist/098Oij7Ia2mktRbbTkBK0X?si=f457e15700534905", shuffle=shuffle)
+        await self.play(ctx, query="https://open.spotify.com/playlist/098Oij7Ia2mktRbbTkBK0X?si=f457e15700534905",
+                        shuffle=shuffle)
 
     @commands.slash_command(name="clean", description="Cleanup spam in any channel")
     @commands.has_permissions(manage_messages=True)
@@ -1597,6 +1622,12 @@ class Music(commands.Cog):
                         self.logger.error(
                             f"Failed to send playing_message in dropdown_callback for guild {interaction.guild_id}. "
                             f"Missing permissions.")
+                        await self.handle_missing_permissions(interaction, discord.Embed(
+                            title="Error",
+                            description=f"I cannot send messages in the {interaction.channel.name} channel. Please "
+                                        f"check my permissions.",
+                            color=discord.Color.red()
+                        ))
                     except discord.errors.HTTPException as e:
                         self.logger.error(
                             f"Failed to send playing_message in dropdown_callback for guild {interaction.guild_id}: {e}")
