@@ -12,7 +12,7 @@ import lavalink
 import lyricsgenius
 import requests
 import spotipy
-from PIL import Image
+from PIL import Image, ImageFilter
 from discord import option, ButtonStyle
 from discord.ext.pages import Paginator
 from discord.ui import Button, View
@@ -279,10 +279,63 @@ class Music(commands.Cog):
             await asyncio.sleep(1)
 
     async def cog_command_error(self, ctx: commands.Context, error: commands.CommandError):
+        tb = ''.join(traceback.format_exception(type(error), error, error.__traceback__))
+        if isinstance(error, discord.errors.Forbidden):
+            await self.handle_permission_error(ctx, "send_messages")
+        elif isinstance(error, commands.MissingPermissions):
+            await self.handle_permission_error(ctx, "manage_messages")
         if isinstance(error, commands.CommandInvokeError):
+
             embed = discord.Embed(title="Error", description=f"```{error.original}```", color=discord.Color.red())
-            self.logger.error(f"Error in {ctx.command.name}: {error.original}")
+            self.logger.error(f"Error in {ctx.command.name}: {error.original}\n{tb}")
             await ctx.respond(embed=embed, ephemeral=True, delete_after=10)
+        self.logger.error(f"Error in {ctx.command.name}: {error}\n{tb}")
+        user = self.bot.get_user(self.bot.owner_id)
+        await user.send(f"Error in {ctx.command.name}: {error}\n```{tb}```")
+
+    async def handle_permission_error(self, ctx, missing_permission):
+        """Handle permission errors by finding an alternative channel or DMing the user."""
+        guild = ctx.guild
+        user = ctx.author
+        # Search for a channel where the bot has permission to send messages
+        async for channel in guild.text_channels:
+            permissions = channel.permissions_for(guild.me)
+            if permissions.send_messages:
+                await channel.send(
+                    f"{user.mention}, I am missing the `{missing_permission}` permission in the original channel. "
+                    f"Please check my permissions in {ctx.channel.mention}."
+                )
+                return
+        try:
+            await user.send(
+                f"I am missing the `{missing_permission}` permission in the original channel, "
+                f"and I couldn't find any other channel to send a message in. Please check my permissions."
+            )
+        except discord.errors.Forbidden:
+            logging.error(f"Could not DM {user} about missing permissions.")
+
+    async def find_alternative_channel(self, guild):
+        """Find an alternative channel where the bot can send messages."""
+        for channel in guild.text_channels:
+            permissions = channel.permissions_for(guild.me)
+            if permissions.send_messages:
+                return channel
+        return None
+
+    async def handle_missing_permissions(self, ctx, embed):
+        """Handle cases where the bot cannot send messages in the current channel."""
+        alternative_channel = await self.find_alternative_channel(ctx.guild)
+        if alternative_channel:
+            await alternative_channel.send(f"<@{ctx.author.id}> I am missing permissions in {ctx.channel.mention}.",
+                                           embed=embed)
+        else:
+            try:
+                await ctx.author.send(
+                    "I am missing the `SEND_MESSAGES` permission in the original channel, "
+                    "and I couldn't find any other channel to send a message in. Please check my permissions."
+                )
+            except discord.errors.Forbidden:
+                logging.error(f"Could not DM {ctx.author} about missing permissions.")
 
     def get_playing_message(self, guild_id):
         # Logic to retrieve the current playing message for the guild
@@ -315,7 +368,7 @@ class Music(commands.Cog):
                     self.stop_import = True
                     await player.set_pause(True)
                     await client.disconnect(force=True)
-                    await player.reset_filters()
+                    # await player.reset_filters()
                     await self.playing_message.delete()
                     await self.playing_message.channel.send("`I have left the voice channel because I was alone.`\n"
                                                             "Unpause the music with `/pause`",
@@ -324,7 +377,7 @@ class Music(commands.Cog):
                     self.disconnect_timer = False
 
     @tasks.loop(seconds=5)
-    async def update_playing_message(self):
+    async def update_playing_message(self, ctx=None):
         async def play_callback(interaction):
             await interaction.response.defer()
             player = self.bot.lavalink.player_manager.get(interaction.guild.id)
@@ -416,7 +469,7 @@ class Music(commands.Cog):
             title = re.sub(r'\[[^)]*\]', '', title)
             title = title.lower()
             title_blacklist = ["lyrics", "lyric", "official", "video", "audio", "music", "full", "hd", "hq", "remix",
-                               "ost", "theme", "original", "version"]
+                               "ost", "theme", "original", "version", " - Topic"]
             for word in title_blacklist:
                 title = title.replace(word, "")
             title = title.strip()
@@ -445,9 +498,19 @@ class Music(commands.Cog):
         except AttributeError:
             pass
         if self.playing_message is None:
+            self.logger.debug("Playing message is None, not updating.")
             return
         else:
             player = self.bot.lavalink.player_manager.get(self.playing_message.guild.id)
+            # check if the bot can send messages to the channel
+            if not self.playing_message.channel.permissions_for(self.playing_message.guild.me).send_messages:
+                self.logger.warning("Bot cannot send messages in the current channel, skipping update.")
+                await self.handle_missing_permissions(self.playing_message, discord.Embed(
+                    title="Error",
+                    description="I cannot send messages in this channel. Please check my permissions.",
+                    color=discord.Color.red()
+                ))
+                return
             if player.current:
                 # check loop status
                 loop = ""
@@ -526,9 +589,11 @@ class Music(commands.Cog):
                 else:
                     buttons.append([Button(style=ButtonStyle.red, emoji="🚫", custom_id="sponsorBlock"), "sponsorBlock"])
                 if self.continue_playing:
-                    buttons.append([Button(style=ButtonStyle.green, emoji="🎧", custom_id="recommendations"), "recommendations"])
+                    buttons.append(
+                        [Button(style=ButtonStyle.green, emoji="🎧", custom_id="recommendations"), "recommendations"])
                 else:
-                    buttons.append([Button(style=ButtonStyle.red, emoji="🎧", custom_id="recommendations"), "recommendations"])
+                    buttons.append(
+                        [Button(style=ButtonStyle.red, emoji="🎧", custom_id="recommendations"), "recommendations"])
                 view = discord.ui.View()
                 for button in buttons:
                     # add the callback to the button
@@ -585,14 +650,6 @@ class Music(commands.Cog):
             await self.ensure_voice(ctx)
             #  Ensure that the bot and command author share a mutual voice channel.
         return guild_check
-
-    async def cog_command_error(self, ctx: discord.ApplicationContext, error):
-        if isinstance(error, commands.CommandInvokeError):
-            await ctx.respond(error.original, delete_after=10, ephemeral=True)
-            # The above handles errors thrown in this cog and shows them to the user.
-            # This shouldn't be a problem as the only errors thrown in this cog are from `ensure_voice`
-            # which contain a reason string, such as "Join a voice channel" etc. You can modify the above
-            # if you want to do things differently.
 
     async def ensure_voice(self, ctx: discord.ApplicationContext):
         """ This check ensures that the bot and command author are in the same voice channel. """
@@ -682,7 +739,6 @@ class Music(commands.Cog):
                 self.logger.info("Queue ended, disconnecting...")
                 await guild.voice_client.disconnect(force=True)
 
-
     def get_similar_tracks(self, track):
         if os.getenv('LASTFM_API_KEY') is None:
             self.logger.warning("LASTFM_API_KEY not set, skipping similar tracks.")
@@ -745,28 +801,40 @@ class Music(commands.Cog):
             return
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
 
-        # check the current channel for any birthday
-        now = str(datetime.datetime.now().strftime("%d/%m"))
-        voice = ctx.author.voice.channel.members
-        for member in voice:
-            if member.bot:
-                continue
-            birthday = birthday_easteregg(member.id)
-            if birthday["date"] is None:
-                continue
-            elif str(now) == str(birthday["date"]):
-                await ctx.channel.send(f"Happy birthday {birthday['name']}! 🎉🎂")
-                bquery = f'ytsearch:happy birthday {birthday["name"].lower()} EpicHappyBirthdays'
-                results = await player.node.get_tracks(bquery)
-                # if there is a result, add it to the queue
-                if results and results['tracks']:
-                    track = results['tracks'][0]
-                    player.add(requester=ctx.author.id, track=track)
-                    if not player.is_playing:
-                        await player.play()
-                        embed = discord.Embed(color=discord.Color.blurple())
-                        embed.title = f'Awaiting song information...'
-                        self.playing_message = await ctx.channel.send(embed=embed)
+        if os.path.exists('birthdays.csv'):
+            # check the current channel for any birthday
+            now = str(datetime.datetime.now().strftime("%d/%m"))
+            voice = ctx.author.voice.channel.members
+            for member in voice:
+                if member.bot:
+                    continue
+                birthday = birthday_easteregg(member.id)
+                if birthday["date"] is None:
+                    continue
+                elif str(now) == str(birthday["date"]):
+                    try:
+                        await ctx.channel.send(f"Happy birthday {birthday['name']}! 🎉🎂")
+                    except discord.errors.Forbidden:
+                        self.logger.error("Bot does not have permission to send messages in this channel.")
+                        # inform the user that the bot cannot send messages in this channel
+                        await self.handle_missing_permissions(ctx, discord.Embed(
+                            title="Error",
+                            description=f"I cannot send messages in the {ctx.channel.name} channel. Please "
+                                        f"check my permissions.",
+                            color=discord.Color.red()
+                        ))
+                        return
+                    bquery = f'ytsearch:happy birthday {birthday["name"].lower()} EpicHappyBirthdays'
+                    results = await player.node.get_tracks(bquery)
+                    # if there is a result, add it to the queue
+                    if results and results['tracks']:
+                        track = results['tracks'][0]
+                        player.add(requester=ctx.author.id, track=track)
+                        if not player.is_playing:
+                            await player.play()
+                            embed = discord.Embed(color=discord.Color.blurple())
+                            embed.title = f'Awaiting song information...'
+                            self.playing_message = await ctx.channel.send(embed=embed)
         # Check if the user input might be a URL. If it isn't, we can Lavalink do a YouTube search for it instead.
         # SoundCloud searching is possible by prefixing "scsearch:" instead.
         if not url_rx.match(query):
@@ -783,8 +851,19 @@ class Music(commands.Cog):
                 "👍 `Started import of Spotify to YouTube, please watch the next message for progress.`",
                 delete_after=10, ephemeral=True)
             player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-            message = await ctx.send("🎶`Converting Spotify playlist to YouTube. For large playlists (2.5k+) this may "
-                                     "take upto 30 seconds...`")
+            try:
+                message = await ctx.send("🎶`Converting Spotify playlist to YouTube. For large playlists (2.5k+) this "
+                                         "may take upto 30 seconds...`")
+            except discord.errors.Forbidden:
+                self.logger.error("Bot does not have permission to send messages in this channel.")
+                # inform the user that the bot cannot send messages in this channel
+                await self.handle_missing_permissions(ctx, discord.Embed(
+                    title="Error",
+                    description=f"I cannot send messages in the {ctx.channel.name} channel. Please "
+                                f"check my permissions.",
+                    color=discord.Color.red()
+                ))
+                return
             t_before = time.time()
             tracks, name = await self.get_playlist_songs(query)
             t_after = time.time()
@@ -836,17 +915,32 @@ class Music(commands.Cog):
                         player.shuffle = True
                     embed = discord.Embed(color=discord.Color.blurple())
                     embed.title = f'Awaiting song information...'
-                    self.playing_message = await ctx.channel.send(embed=embed)
+                    try:
+                        self.playing_message = await ctx.channel.send(embed=embed)
+                    except discord.errors.Forbidden:
+                        self.logger.error("Bot does not have permission to send messages in this channel.")
+                        # inform the user that the bot cannot send messages in this channel
+                        await self.handle_missing_permissions(ctx, discord.Embed(
+                            title="Error",
+                            description=f"I cannot send messages in the {ctx.channel.name} channel. Please "
+                                        f"check my permissions.",
+                            color=discord.Color.red()
+                        ))
+                        return
                 elapsed_time = time.time() - start_time
                 remaining_tracks = len(tracks) - (i + batch_size)
                 estimated_time = (elapsed_time / (i + batch_size)) * remaining_tracks
                 embed = discord.Embed(color=await Generate_color(str(playlist_info["images"][0]["url"])))
                 if "/album/" in query:
                     embed.title = f'Importing Spotify album: {name}'
-                    embed.description = f'**Importing:** {name} by {playlist_info["artists"][0]["name"]}'
+                    embed.description = (f'**Importing:** [{name}](<{query}>) by '
+                                         f'[{playlist_info["artists"][0]["name"]}]'
+                                         f'(<{playlist_info["artists"][0]["external_urls"]["spotify"]}>)')
                 elif "/playlist/" in query:
                     embed.title = f'Importing Spotify playlist: {name}'
-                    embed.description = f'**Importing:** {name} by {playlist_info["owner"]["display_name"]}'
+                    embed.description = (f'**Importing:** [{name}](<{query}>) by '
+                                         f'[{playlist_info["owner"]["display_name"]}]'
+                                         f'(<{playlist_info["owner"]["external_urls"]["spotify"]}>)')
                 embed.set_thumbnail(url=playlist_info["images"][0]["url"])
                 view = discord.ui.View()
                 button = Button(style=ButtonStyle.red, label="Stop Import", custom_id="stop_import")
@@ -878,7 +972,7 @@ class Music(commands.Cog):
 
         if results.load_type == 'PLAYLIST':
             # If the query was a playlist, we add all the tracks to the queue.
-            for track in results.tracks:
+            async for track in results.tracks:
                 player.add(requester=ctx.author.id, track=track)
             self.logger.debug(f"Queue length: {len(player.queue)}")
         elif results.load_type == 'SEARCH':
@@ -1314,54 +1408,7 @@ class Music(commands.Cog):
     @commands.slash_command(name="pirate", description="Add the pirate shanties playlist to the queue")
     @option(name="shuffle", description="Shuffle the playlist", required=False)
     async def pirate(self, ctx: discord.ApplicationContext, shuffle: bool = False):
-        await ctx.respond(
-            "👍 `Started import of pirate shanties, please watch the next message for progress.`",
-            delete_after=10, ephemeral=True)
-        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-        message = await ctx.send("Initializing Spotify wrapper... (0%)")
-        tracks, name = await self.get_playlist_songs(
-            "https://open.spotify.com/playlist/098Oij7Ia2mktRbbTkBK0X?si=e10a2ba7062e487e")
-        if shuffle:
-            random.shuffle(tracks)
-        playlist_info = sp.playlist("https://open.spotify.com/playlist/098Oij7Ia2mktRbbTkBK0X?si=e10a2ba7062e487e")
-        for track in tracks:
-            if self.stop_import:
-                await ctx.respond("👍 `Stopped importing Spotify playlist.`", ephemeral=True, delete_after=10)
-                await message.delete()
-                self.stop_import = False
-                return
-            query = f'ytsearch:{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
-            if int(tracks.index(track)) % 5 == 0:
-                embed = discord.Embed(color=discord.Color.blurple())
-                embed.title = f'Importing Spotify playlist'
-                embed.description = f'**Importing:** {name}'
-                # add a button to stop the import
-                button = Button(style=ButtonStyle.red, label="Stop Import", custom_id="stop_import")
-                button.callback = self.cb_stop_import
-                bar_length = 12
-                progress = (tracks.index(track) / len(tracks)) * bar_length
-                # progress bar using green and white square emojis
-                embed.add_field(
-                    name=f"Progress: {round((tracks.index(track) / len(tracks)) * 100, 2)}% ({tracks.index(track)}/{len(tracks)})",
-                    value=f"{'🟩' * int(progress)}{'⬜' * (bar_length - int(progress))}")
-                # Add the image of the playlist cover to the embed
-                embed.set_thumbnail(url=playlist_info["images"][0]["url"])
-                await message.edit(embed=embed, content="", view=discord.ui.View().add_item(button))
-            results = await player.node.get_tracks(query)
-            if not results or not results['tracks']:
-                continue
-            track = results['tracks'][0]
-            player.add(requester=ctx.author.id, track=track)
-            if not player.is_playing:
-                await player.play()
-                embed = discord.Embed(color=discord.Color.blurple())
-                embed.title = f'Awaiting song information...'
-                self.playing_message = await ctx.channel.send(embed=embed)
-                player.set_shuffle(True)
-        await message.edit(content=f"👍 `Finished import of {name}`", embed=None)
-        await asyncio.sleep(10)
-        await message.delete()
-        return True
+        await self.play(ctx, query="https://open.spotify.com/playlist/098Oij7Ia2mktRbbTkBK0X?si=f457e15700534905", shuffle=shuffle)
 
     @commands.slash_command(name="clean", description="Cleanup spam in any channel")
     @commands.has_permissions(manage_messages=True)
@@ -1380,7 +1427,33 @@ class Music(commands.Cog):
             await ctx.respond("👍 `Sending display message...`", delete_after=10, ephemeral=True)
             embed = discord.Embed(color=discord.Color.blurple())
             embed.title = f'Fetching song information...'
-            self.playing_message = await ctx.channel.send(embed=embed)
+            if self.playing_message:
+                try:
+                    await self.playing_message.delete()
+                except discord.NotFound:
+                    pass
+            if not ctx.channel.permissions_for(ctx.guild.me).send_messages:
+                self.logger.warning("Bot cannot send messages in the current channel, skipping update.")
+                await self.handle_missing_permissions(ctx.channel, discord.Embed(
+                    title="Error",
+                    description=f"I cannot send messages in the {ctx.channel.name} channel. Please "
+                                f"check my permissions.",
+                    color=discord.Color.red()
+                ))
+                self.playing_message = None
+                return
+            else:
+                try:
+                    self.playing_message = await ctx.channel.send(embed=embed)
+                except discord.errors.Forbidden:
+                    self.logger.error("Bot does not have permission to send messages in this channel.")
+                    self.playing_message = None
+                    await self.handle_missing_permissions(ctx, discord.Embed(
+                        title="Error",
+                        description=f"I cannot send messages in the {ctx.channel.name} channel. Please "
+                                    f"check my permissions.",
+                        color=discord.Color.red()
+                    ))
             await self.update_playing_message(ctx)
         else:
             return await ctx.respond('Nothing playing.', delete_after=5, ephemeral=True)
@@ -1450,9 +1523,11 @@ class Music(commands.Cog):
                 if (not player.is_playing and len(player.queue) == 1 and
                         player.queue[0].identifier == track_to_play.identifier):
                     player.queue.pop(0)
-                    response_message_content = f"🎶 Track **{final_track_display_name}** removed. Join a voice channel to play music."
+                    response_message_content = (f"🎶 Track **{final_track_display_name}** removed. Join a voice "
+                                                f"channel to play music.")
                 else:
-                    response_message_content = f"🎶 Track **{final_track_display_name}** added to queue. Join a voice channel to play."
+                    response_message_content = (f"🎶 Track **{final_track_display_name}** added to queue. Join a voice "
+                                                f"channel to play.")
                 await interaction.edit_original_response(content=response_message_content, view=None)
                 return
 
@@ -1610,29 +1685,34 @@ async def Generate_color(image_url):
     """Generate a similar color to the album cover of the song.
     :param image_url: The url of the album cover.
     :return: The color of the album cover."""
-
     async with aiohttp.ClientSession() as session:
         async with session.get(image_url) as resp:
             if resp.status != 200:
                 return discord.Color.blurple()
             f = io.BytesIO(await resp.read())
     image = Image.open(f)
-    # Get adverage color of the image
+    if image.size[0] == image.size[1] and image.size[0] > 100:
+        left_color = image.getpixel((int(image.size[0] * 0.05), int(image.size[1] / 2)))
+        right_color = image.getpixel((int(image.size[0] * 0.95), int(image.size[1] / 2)))
+        if left_color == right_color:
+            return discord.Color.from_rgb(left_color[0], left_color[1], left_color[2])
+    image = image.resize((int(image.size[0] * (100 / image.size[1])), 100), Image.Resampling.LANCZOS)
     colors = image.getcolors(image.size[0] * image.size[1])
-    # Sort the colors by the amount of pixels and get the most common color
+    if not colors:
+        return discord.Color.blurple()
     colors.sort(key=lambda x: x[0], reverse=True)
-    # Get the color of the most common color, ignoring black and white
-    while True:
+    while colors:
         color = colors[0][1]
         if color != (0, 0, 0) and color != (255, 255, 255):
             break
         colors.pop(0)
+    else:
+        return discord.Color.blurple()
     try:
         if len(color) < 3:
             return discord.Color.blurple()
     except TypeError:
         return discord.Color.blurple()
-    # Convert the color to a discord color
     return discord.Color.from_rgb(color[0], color[1], color[2])
 
 
