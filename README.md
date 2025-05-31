@@ -10,7 +10,6 @@
    <a href="">![Python](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python&logoColor=white)</a>
    <a href="">![Pycord](https://img.shields.io/badge/Pycord-2.4%2B-blueviolet?logo=discord&logoColor=white)</a>
    <a href="">![License](https://img.shields.io/badge/License-MIT-green)</a>
-   <a href="https://top.gg/bot/887006229195542598">![Discord Bots](https://top.gg/api/widget/887006229195542598.svg)</a>
 </div>
 
 # RipthmV2
