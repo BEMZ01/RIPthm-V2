@@ -92,25 +92,19 @@ class TopGGAPI:
         if int(os.getenv("OWNER_ID", 0)) == user_id:
             return True
 
-        url = f"{self.base_url}/bots/{self.bot_id}/check"
+        url = f"bots/{self.bot_id}/check"
         params = {"userId": user_id}
         if self._is_cache_valid(url):
             return self._get_cached_data(url)
 
         response = self.get(url, params=params)
-        if response.status_code == 200:
-            data = response.json()
-            self._set_cache(url, data)
-            return data.get("voted", False)
-        elif response.status_code == 404:
+        if response is None:
             return False
-        elif 400 <= response.status_code < 500:
-            raise requests.HTTPError(f"Client error: {response.status_code} - {response.text}")
-        elif 500 <= response.status_code < 600:
-            raise requests.HTTPError(f"Server error: {response.status_code} - {response.text}")
-        else:
-            response.raise_for_status()
-        return None
+        if isinstance(response, dict) and 'voted' in response:
+            voted = response['voted']
+            self._set_cache(url, voted)
+            return voted
+        raise ValueError("Unexpected response format from Top.gg API")
 
     def get_vote_url(self, user_id: str = None):
         """Get the vote URL for a user.
