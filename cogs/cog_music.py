@@ -1029,7 +1029,13 @@ class Music(commands.Cog):
                 for result in results:
                     if not result or not result['tracks']:
                         self.logger.error(f"No tracks found for query: {squery}")
-                        continue
+                        # Backup search on YouTube
+                        squery_backup = squery.replace('ytmsearch:', 'ytsearch:')
+                        self.logger.info(f"Attempting backup search on YouTube for query: {squery_backup}")
+                        result = await player.node.get_tracks(squery_backup)
+                        if not result or not result['tracks']:
+                            self.logger.error(f"No tracks found for backup query: {squery_backup}")
+                            continue
                     track = result['tracks'][0]
                     player.add(requester=ctx.author.id, track=track)
                 if not player.is_playing:
