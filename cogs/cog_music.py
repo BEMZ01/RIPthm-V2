@@ -425,7 +425,7 @@ class Music(commands.Cog):
             await self.update_playing_message()
 
         async def stop_callback(interaction):
-            await interaction.response.defer()
+            await interaction.response.defer(ephemeral=True)
             player = self.bot.lavalink.player_manager.get(interaction.guild_id)
             if not self.bot.get_channel(player.channel_id):
                 return await interaction.channel.send('Not connected.', delete_after=10)
@@ -444,6 +444,7 @@ class Music(commands.Cog):
             except AttributeError:
                 pass
             await interaction.channel.send('*⃣ | Disconnected.', delete_after=10)
+            return None
 
         async def shuffle_callback(interaction):
             await interaction.response.defer()
@@ -555,10 +556,10 @@ class Music(commands.Cog):
                 else:
                     shuffle = ""
                 if self.CP is not None:
-                    color = await Generate_color(self.CP[0]['song_art_image_url'])
+                    color = await Generate_color(self.CP[0]['song_art_image_url'], random_color=True)
                 else:
                     color = await Generate_color(
-                        f"https://img.youtube.com/vi/{player.current.identifier}/hqdefault.jpg")
+                        f"https://img.youtube.com/vi/{player.current.identifier}/hqdefault.jpg", random_color=True)
                 if player.paused:
                     embed = discord.Embed(title="Paused " + loop + " " + shuffle,
                                           description=f'**[{player.current.title}]({player.current.uri})**\n'
@@ -709,9 +710,9 @@ class Music(commands.Cog):
                             else:
                                 self.sponsorblock_message_sent = False  # Reset the flag if there are voters
                                 embed = discord.Embed(title="SponsorBlock",
-                                                      description=f'Skipped segment because it was: `{segment.category}`',
+                                                      description=f'You saved **{int(segment.end - segment.start)}** seconds of filler!\n-# Segment was skipped because it was `{segment.category}`.\n',
                                                       color=discord.Color.brand_red())
-                                embed.set_footer(text=f'`Use /sponsorblock to toggle the SponsorBlock integration.`')
+                                embed.set_footer(text=f'Use /sponsorblock to toggle the feature or press 🚫 in the playing message.')
                                 await self.playing_message.channel.send(embed=embed, delete_after=30)
                                 self.last_sponsorblock_message_time = current_time
                                 await player.seek(int(segment.end * 1000))
@@ -921,14 +922,13 @@ class Music(commands.Cog):
     async def play(self, ctx: discord.ApplicationContext, *, query: str, shuffle: bool = False,
                    source: str = "youtube_music"):
         """ Searches and plays a song from a given query. """
-        await ctx.defer(ephemeral=True)
-        # Get the player for this guild from cache.
+        await ctx.respond("Processing your request...", ephemeral=True)
+        # Ensure the interaction is responded to before lengthy operations
         if not ctx.guild:
             return None
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
 
         if os.path.exists('birthdays.csv'):
-            # check the current channel for any birthday
             now = str(datetime.datetime.now().strftime("%d/%m"))
             voice = ctx.author.voice.channel.members
             for member in voice:
@@ -942,7 +942,6 @@ class Music(commands.Cog):
                         await ctx.channel.send(f"Happy birthday {birthday['name']}! 🎉🎂")
                     except discord.errors.Forbidden:
                         self.logger.error("Bot does not have permission to send messages in this channel.")
-                        # inform the user that the bot cannot send messages in this channel
                         await self.handle_missing_permissions(ctx, discord.Embed(
                             title="Error",
                             description=f"I cannot send messages in the {ctx.channel.name} channel. Please "
@@ -952,7 +951,6 @@ class Music(commands.Cog):
                         return None
                     bquery = f'ytsearch:happy birthday {birthday["name"].lower()} EpicHappyBirthdays'
                     results = await player.node.get_tracks(bquery)
-                    # if there is a result, add it to the queue
                     if results and results['tracks']:
                         track = results['tracks'][0]
                         player.add(requester=ctx.author.id, track=track)
@@ -1030,8 +1028,7 @@ class Music(commands.Cog):
                     continue
                 for result in results:
                     if not result or not result['tracks']:
-                        self.logger.error(
-                            f"Failed to get track for {track['name']} by {track['artists'][0]['name']}")
+                        self.logger.error(f"No tracks found for query: {squery}")
                         continue
                     track = result['tracks'][0]
                     player.add(requester=ctx.author.id, track=track)
@@ -1359,6 +1356,7 @@ class Music(commands.Cog):
         except AttributeError:
             pass
         await ctx.respond('*⃣ | Disconnected.', delete_after=10, ephemeral=True)
+        return None
 
     @commands.slash_command(name="pause", description="Pause/resume the current song", aliases=['resume'])
     async def pause(self, ctx: discord.ApplicationContext):

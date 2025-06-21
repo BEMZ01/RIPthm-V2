@@ -1,24 +1,38 @@
 import aiohttp
 import discord
 import io
+import random
 from PIL import Image
 
 
-async def Generate_color(image_url):
-    """Generate a similar color to the album cover of the song.
+async def Generate_color(image_url, random_color=False):
+    """Generate a similar color to the album cover of the song or a random color from the top 50%.
     :param image_url: The url of the album cover.
-    :return: The color of the album cover."""
+    :param random_color: If True, return a random color from the top 50%.
+    :return: The color of the album cover or a random color."""
     async with aiohttp.ClientSession() as session:
         async with session.get(image_url) as resp:
             if resp.status != 200:
                 return discord.Color.blurple()
             f = io.BytesIO(await resp.read())
-    image = Image.open(f)
+    image = Image.open(f).convert("RGB")
+
+    if random_color:
+        image = image.resize((int(image.size[0] * (100 / image.size[1])), 100), Image.Resampling.LANCZOS)
+        colors = image.getcolors(image.size[0] * image.size[1])
+        if not colors:
+            return discord.Color.blurple()
+        colors.sort(key=lambda x: x[0], reverse=True)
+        top_colors = colors[:len(colors) // 2]  # Top 50% colors
+        random_color = random.choice(top_colors)[1]
+        return discord.Color.from_rgb(random_color[0], random_color[1], random_color[2])
+
     if image.size[0] == image.size[1] and image.size[0] > 100:
         left_color = image.getpixel((int(image.size[0] * 0.05), int(image.size[1] / 2)))
         right_color = image.getpixel((int(image.size[0] * 0.95), int(image.size[1] / 2)))
         if left_color == right_color:
             return discord.Color.from_rgb(left_color[0], left_color[1], left_color[2])
+
     image = image.resize((int(image.size[0] * (100 / image.size[1])), 100), Image.Resampling.LANCZOS)
     colors = image.getcolors(image.size[0] * image.size[1])
     if not colors:
