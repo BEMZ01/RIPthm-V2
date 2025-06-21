@@ -1,30 +1,31 @@
 import asyncio
 import datetime
-import io
+import json
 import logging
 import random
 import re
 import traceback
 from pprint import pprint
+
 import aiohttp
 import discord
 import lavalink
 import lyricsgenius
 import requests
 import spotipy
-from PIL import Image, ImageFilter
 from discord import option, ButtonStyle
 from discord.ext.pages import Paginator
-from discord.ui import Button, View
+from discord.ui import Button
 from lavalink import LoadType
 from spotipy.oauth2 import SpotifyClientCredentials
-import sponsorblock as sb
 from dotenv import load_dotenv
 from discord.ext import commands, tasks
 from lavalink.filters import *
 import os
-from copy import deepcopy
 import time
+import sponsorblock as sb
+from utils.topgg_api import TopGGAPI
+from utils.generic import Generate_color, paginator, limit, progress_bar
 
 load_dotenv()
 SPOTIFY_CLIENT_ID = str(os.getenv('SPOTIFY_CLIENT_ID'))
@@ -32,8 +33,6 @@ SPOTIFY_CLIENT_SECRET = str(os.getenv('SPOTIFY_SECRET'))
 url_rx = re.compile(r'https?://(?:www\.)?.+')
 sp = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLIENT_ID,
                                                                          client_secret=SPOTIFY_CLIENT_SECRET))
-sbClient = sb.Client()
-
 
 class Effect:
     def __init__(self, nightcore: bool = False, vaporwave: bool = False):
@@ -45,7 +44,6 @@ class Effect:
             self.nightcore = state
         elif tag == "vaporwave":
             self.vaporwave = state
-
 
 class LavalinkVoiceClient(discord.VoiceClient):
     def __init__(self, client: discord.Client, channel: discord.abc.Connectable):
@@ -131,7 +129,6 @@ class LavalinkVoiceClient(discord.VoiceClient):
         player.channel_id = None
         self.cleanup()
 
-
 class DiscordDropDownSelect(discord.ui.Select):
     def __init__(self, options: list, **kwargs):
         super().__init__(**kwargs)
@@ -141,15 +138,6 @@ class DiscordDropDownSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.send_message(f'You selected {self.values[0]}', ephemeral=True)
-
-
-def progress_bar(player):
-    # This is a helper function that generates a progress bar for the currently playing track.
-    # It's not necessary for the cog to function, but it's a nice touch.
-    bar_length = 12
-    progress = (player.position / player.current.duration) * bar_length
-    return f"[{'🟩' * int(progress)}{'⬜' * (bar_length - int(progress))}]"
-
 
 def birthday_easteregg(userID):
     # read from a csv file
@@ -163,14 +151,6 @@ def birthday_easteregg(userID):
         if line[2] == str(userID):
             return {"name": line[0], "date": line[1], "id": line[2]}
     return {"name": None, "date": None, "id": None}
-
-
-async def get_skip_segments(uri):
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
-                f"https://sponsor.ajay.app/api/skipSegments?videoID={uri}") as response:
-            return await response.json()
-
 
 class Music(commands.Cog):
     def __init__(self, bot, logger):
@@ -197,6 +177,10 @@ class Music(commands.Cog):
         self.last_status = None
         self.last_track = None
         bot.loop.create_task(self.connect())
+        self.last_song_uri = None
+        self.last_song_uri_cache = None
+        self.sponsorblock_message_sent = False
+        self.last_sponsorblock_message_time = 0
 
     async def connect(self):
         await self.bot.wait_until_ready()
@@ -234,11 +218,51 @@ class Music(commands.Cog):
         else:
             self.logger.warning("Lavalink already connected.")
 
+    async def get_skip_segments(self, uri):
+        if self.last_song_uri == uri:
+            if self.last_song_uri_cache is not None:
+                return self.last_song_uri_cache
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                    f"https://sponsor.ajay.app/api/skipSegments?videoID={uri}") as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data:
+                        self.last_song_uri_cache = data
+                        self.last_song_uri = uri
+                        return data
+                    else:
+                        self.last_song_uri_cache = None
+                        self.last_song_uri = None
+                        return None
+                if 400 <= response.status < 500:
+                    raise aiohttp.ClientResponseError(
+                        request_info=response.request_info,
+                        history=response.history,
+                        status=response.status,
+                        message=f"Client error: {response.status} - {await response.text()}"
+                    )
+                if 500 <= response.status < 600:
+                    raise aiohttp.ServerResponseError(
+                        request_info=response.request_info,
+                        history=response.history,
+                        status=response.status,
+                        message=f"Server error: {response.status} - {await response.text()}"
+                    )
+                else:
+                    return None
+
     @commands.Cog.listener()
     async def on_ready(self):
         self.logger.info("onready event received")
         await self.wait_until_lavalink_ready()
         self.check_update_status.start()
+        self.logger.info("Lavalink ready and cog is loaded.")
+        if not hasattr(self.bot, 'topgg') and os.getenv('TOPGG_TOKEN'):
+            self.bot.topgg = TopGGAPI(token=os.getenv('TOPGG_TOKEN'), bot_id=self.bot.user.id)
+        elif not hasattr(self.bot, 'topgg') and (os.getenv('TOPGG_TOKEN') is None or os.getenv('TOPGG_TOKEN') == ""):
+            self.logger.warning("TOPGG_TOKEN not found in environment variables. Top.gg API will not be available.")
+            self.bot.topgg = TopGGAPI(token=os.getenv('TOPGG_TOKEN'), bot_id=self.bot.user.id, bypass=True)
 
     @tasks.loop(seconds=10)
     async def check_update_status(self):
@@ -300,7 +324,7 @@ class Music(commands.Cog):
         guild = ctx.guild
         user = ctx.author
         # Search for a channel where the bot has permission to send messages
-        async for channel in guild.text_channels:
+        for channel in guild.text_channels:
             permissions = channel.permissions_for(guild.me)
             if permissions.send_messages:
                 await channel.send(
@@ -506,7 +530,7 @@ class Music(commands.Cog):
             pass
         if self.playing_message is None:
             self.logger.debug("Playing message is None, not updating.")
-            return
+            return None
         else:
             player = self.bot.lavalink.player_manager.get(self.playing_message.guild.id)
             # check if the bot can send messages to the channel
@@ -517,7 +541,7 @@ class Music(commands.Cog):
                     description="I cannot send messages in this channel. Please check my permissions.",
                     color=discord.Color.red()
                 ))
-                return
+                return None
             if player.current:
                 # check loop status
                 loop = ""
@@ -554,13 +578,13 @@ class Music(commands.Cog):
                     embed.set_thumbnail(url=self.CP[0]['song_art_image_url'])
                 else:
                     if player.current is None:
-                        return
+                        return None
                     else:
                         embed.set_thumbnail(url=f"https://img.youtube.com/vi/"
                                                 f"{player.current.identifier if player is not None else 'ABCDEF'}"
                                                 f"/hqdefault.jpg")
                 if player.current is None:
-                    return
+                    return None
                 else:
                     embed.add_field(name='Duration', value=f'{lavalink.utils.format_time(player.position)}/'
                                                            f'{lavalink.utils.format_time(player.current.duration)} '
@@ -608,11 +632,14 @@ class Music(commands.Cog):
                     view.add_item(button[0])
                 try:
                     await self.playing_message.edit("", embed=embed, view=view)
+                    return None
                 except discord.errors.NotFound:
                     try:
                         self.logger.warning("Message not found, creating new one")
                         if self.playing_message is not None:
                             self.playing_message = await self.playing_message.channel.send("", embed=embed, view=view)
+                            return None
+                        return None
                     except discord.errors.Forbidden:
                         self.logger.error("Bot cannot send messages in the current channel, skipping update.")
                         await self.handle_missing_permissions(self.playing_message, discord.Embed(
@@ -620,6 +647,8 @@ class Music(commands.Cog):
                             description="I cannot send messages in this channel. Please check my permissions.",
                             color=discord.Color.red()
                         ))
+                        return None
+            return None
 
     @update_playing_message.error
     async def update_playing_message_error(self, exception):
@@ -638,20 +667,54 @@ class Music(commands.Cog):
             player = self.bot.lavalink.player_manager.get(self.playing_message.guild.id)
             if player.current and self.sponsorBlock:
                 try:
-                    segments = await get_skip_segments(player.current.uri)
+                    channel = self.bot.get_channel(player.channel_id)
+                    if channel is None:
+                        self.logger.warning("Channel not found for the current player.")
+                        return
+                except AttributeError:
+                    return
+                members = channel.members if channel else []
+                voters_in_channel = []
+                for member in members:
+                    if not member.bot and self.bot.topgg.get_user_vote(member.id):
+                        voters_in_channel.append(member)
+                try:
+                    if self.last_song_uri != player.current.identifier:
+                        sbc = sb.Client()
+                        segments = sbc.get_skip_segments(player.current.identifier)
+                        self.last_song_uri_cache = segments
+                    else:
+                        segments = self.last_song_uri_cache
                 except Exception as e:
                     segments = None
+                current_time = time.time()
                 if segments:
-                    # seek past any segments that are in segments
                     for segment in segments:
                         if float(segment.start * 1000) < player.position < float(segment.end * 1000):
-                            await player.seek(int(segment.end * 1000))
-                            embed = discord.Embed(title="SponsorBlock",
-                                                  description=f'Skipped segment because it was: `{segment.category}`',
-                                                  color=discord.Color.brand_red())
-                            embed.set_footer(text=f'`Use /sponsorblock to toggle the SponsorBlock integration.`')
-
-                            await self.playing_message.channel.send(embed=embed, delete_after=30)
+                            if len(voters_in_channel) == 0:
+                                if not self.sponsorblock_message_sent or current_time - self.last_sponsorblock_message_time > 30:
+                                    self.sponsorblock_message_sent = True  # Set the flag to True after sending the message
+                                    view = discord.ui.View()
+                                    view.add_item(
+                                        discord.ui.Button(label="Vote for me on top.gg!",
+                                                          url=self.bot.topgg.get_vote_url(),
+                                                          style=discord.ButtonStyle.link))
+                                    embed = discord.Embed(title="SponsorBlock",
+                                                          description=f"You could have saved {int(segment.end - segment.start)} seconds of silence! "
+                                                                      f"Please vote for the bot on top.gg to enable automatic SponsorBlock skipping!",
+                                                          color=discord.Color.brand_red())
+                                    await self.playing_message.channel.send(embed=embed, delete_after=30, view=view)
+                                    self.last_sponsorblock_message_time = current_time
+                                return
+                            else:
+                                self.sponsorblock_message_sent = False  # Reset the flag if there are voters
+                                embed = discord.Embed(title="SponsorBlock",
+                                                      description=f'Skipped segment because it was: `{segment.category}`',
+                                                      color=discord.Color.brand_red())
+                                embed.set_footer(text=f'`Use /sponsorblock to toggle the SponsorBlock integration.`')
+                                await self.playing_message.channel.send(embed=embed, delete_after=30)
+                                self.last_sponsorblock_message_time = current_time
+                                await player.seek(int(segment.end * 1000))
 
     def cog_unload(self):
         """ Cog unload handler. This removes any event hooks that were registered. """
@@ -726,7 +789,45 @@ class Music(commands.Cog):
             player = self.bot.lavalink.player_manager.get(guild_id)
 
             if self.continue_playing and self.last_track is not None:
-                self.logger.info("Track ended, getting recommendations...")
+                self.logger.info("Track ended...")
+                channel = self.bot.get_channel(player.fetch('VoiceChannel'))
+                members = channel.members if channel else []
+                voters_in_channel = []
+                for member in members:
+                    if not member.bot and self.bot.topgg.get_user_vote(member.id):
+                        voters_in_channel.append(member)
+                if len(voters_in_channel) == 0:
+                    self.logger.info("No voters in channel, skipping recommendations.")
+                    try:
+                        view = discord.ui.View()
+                        view.add_item(
+                            discord.ui.Button(label="Vote for me on top.gg!",
+                                              url=self.bot.topgg.get_vote_url(),
+                                              style=discord.ButtonStyle.link))
+                        embed = discord.Embed(title="Recommendations",
+                                              description=f"Keep the music going! "
+                                                          f"Please vote for the bot on top.gg to enable recommended music!",
+                                              color=discord.Color.brand_red())
+                        await self.playing_message.channel.send(embed=embed, delete_after=30, view=view)
+                    except discord.errors.Forbidden:
+                        self.logger.error("Bot cannot send messages in the current channel, skipping recommendations.")
+                        await self.handle_missing_permissions(self.playing_message, discord.Embed(
+                            title="Error",
+                            description="I cannot send messages in this channel. Please check my permissions.",
+                            color=discord.Color.red()
+                        ))
+                    finally:
+                        self.stop_import = True
+                        player.queue.clear()
+                        await player.stop()
+                        await guild.voice_client.disconnect(force=True)
+                        try:
+                            await self.playing_message.delete()
+                            self.playing_message = None
+                        except AttributeError:
+                            pass
+                        return
+                self.logger.info("Getting similar tracks...")
                 tracks = self.get_similar_tracks(self.last_track)
                 if tracks is None:
                     self.logger.info("No similar tracks found. Falling back to YouTube search")
@@ -753,7 +854,16 @@ class Music(commands.Cog):
                     self.logger.info("No similar tracks found.")
             else:
                 self.logger.info("Queue ended, disconnecting...")
+                self.stop_import = True
+                player.queue.clear()
+                await player.stop()
                 await guild.voice_client.disconnect(force=True)
+                try:
+                    await self.playing_message.delete()
+                    self.playing_message = None
+                except AttributeError:
+                    pass
+                return
 
     def get_similar_tracks(self, track):
         if os.getenv('LASTFM_API_KEY') is None:
@@ -814,7 +924,7 @@ class Music(commands.Cog):
         await ctx.defer(ephemeral=True)
         # Get the player for this guild from cache.
         if not ctx.guild:
-            return
+            return None
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
 
         if os.path.exists('birthdays.csv'):
@@ -839,7 +949,7 @@ class Music(commands.Cog):
                                         f"check my permissions.",
                             color=discord.Color.red()
                         ))
-                        return
+                        return None
                     bquery = f'ytsearch:happy birthday {birthday["name"].lower()} EpicHappyBirthdays'
                     results = await player.node.get_tracks(bquery)
                     # if there is a result, add it to the queue
@@ -859,7 +969,7 @@ class Music(commands.Cog):
                 query = query if query.startswith("ytmsearch:") else f"ytmsearch:{query}"
             else:
                 await self.search(ctx, query, "cmd" + source)
-                return
+                return None
         if query.startswith('https://open.spotify.com/playlist/') or query.startswith(
                 "https://open.spotify.com/album/"):
             self.stop_import = False
@@ -879,7 +989,7 @@ class Music(commands.Cog):
                                 f"check my permissions.",
                     color=discord.Color.red()
                 ))
-                return
+                return None
             t_before = time.time()
             tracks, name = await self.get_playlist_songs(query)
             t_after = time.time()
@@ -895,7 +1005,7 @@ class Music(commands.Cog):
                 await ctx.respond(f"👎 `Failed to import Spotify playlist. ({e})`\nIs the playlist private?",
                                   ephemeral=True, delete_after=10)
                 await message.delete()
-                return
+                return None
             start_time = time.time()
             bar_length = 12
             batch_size = max(1, len(tracks) // bar_length)
@@ -904,7 +1014,7 @@ class Music(commands.Cog):
                     await ctx.respond("👍 `Stopped importing Spotify playlist.`", ephemeral=True, delete_after=10)
                     await message.delete()
                     self.stop_import = False
-                    return
+                    return None
                 batch = tracks[i:i + batch_size]
                 tasks = []
                 for track in batch:
@@ -942,7 +1052,7 @@ class Music(commands.Cog):
                                         f"check my permissions.",
                             color=discord.Color.red()
                         ))
-                        return
+                        return None
                 elapsed_time = time.time() - start_time
                 remaining_tracks = len(tracks) - (i + batch_size)
                 estimated_time = (elapsed_time / (i + batch_size)) * remaining_tracks
@@ -988,7 +1098,7 @@ class Music(commands.Cog):
 
         if results.load_type == 'PLAYLIST':
             # If the query was a playlist, we add all the tracks to the queue.
-            async for track in results.tracks:
+            for track in results.tracks:
                 player.add(requester=ctx.author.id, track=track)
             self.logger.debug(f"Queue length: {len(player.queue)}")
         elif results.load_type == 'SEARCH':
@@ -1014,6 +1124,7 @@ class Music(commands.Cog):
             await player.play()
             try:
                 self.playing_message = await ctx.channel.send(embed=embed)
+                return None
             except discord.errors.Forbidden:
                 self.logger.error("Bot does not have permission to send messages in this channel.")
                 # inform the user that the bot cannot send messages in this channel
@@ -1023,7 +1134,8 @@ class Music(commands.Cog):
                                 f"check my permissions.",
                     color=discord.Color.red()
                 ))
-                return
+                return None
+        return None
 
     @commands.slash_command(name="quickplay", description="Play a song from your status.")
     async def quickplay(self, ctx: discord.ApplicationContext):
@@ -1469,12 +1581,16 @@ class Music(commands.Cog):
                     color=discord.Color.red()
                 ))
                 self.playing_message = None
-                return
+                return None
             else:
                 try:
                     self.playing_message = await ctx.channel.send(embed=embed)
-                except discord.errors.Forbidden:
-                    self.logger.error("Bot does not have permission to send messages in this channel.")
+                    self.store_playing_message_ref(ctx.guild.id, self.playing_message)
+                    await self.update_playing_message(ctx)
+                except discord.Forbidden:
+                    self.logger.error(
+                        f"Failed to send playing_message in dropdown_callback for guild {ctx.guild.id}. "
+                        f"Missing permissions.")
                     self.playing_message = None
                     await self.handle_missing_permissions(ctx, discord.Embed(
                         title="Error",
@@ -1483,6 +1599,7 @@ class Music(commands.Cog):
                         color=discord.Color.red()
                     ))
             await self.update_playing_message(ctx)
+            return None
         else:
             return await ctx.respond('Nothing playing.', delete_after=5, ephemeral=True)
 
@@ -1697,7 +1814,7 @@ class Music(commands.Cog):
             view = discord.ui.View(timeout=180)
             select_menu = DiscordDropDownSelect(
                 options=options,
-                placeholder=f"Found {len(options)} results for \"{query}\""
+                placeholder=limit(f"Found {len(options)} results for \"{query}\"", 150)
             )
             select_menu.callback = dropdown_callback
             view.add_item(select_menu)
@@ -1713,88 +1830,6 @@ class Music(commands.Cog):
                 await ctx.followup.send(content=response_content, ephemeral=True)
             else:
                 await ctx.respond(response_content, ephemeral=True, delete_after=10)
-
-
-async def Generate_color(image_url):
-    """Generate a similar color to the album cover of the song.
-    :param image_url: The url of the album cover.
-    :return: The color of the album cover."""
-    async with aiohttp.ClientSession() as session:
-        async with session.get(image_url) as resp:
-            if resp.status != 200:
-                return discord.Color.blurple()
-            f = io.BytesIO(await resp.read())
-    image = Image.open(f)
-    if image.size[0] == image.size[1] and image.size[0] > 100:
-        left_color = image.getpixel((int(image.size[0] * 0.05), int(image.size[1] / 2)))
-        right_color = image.getpixel((int(image.size[0] * 0.95), int(image.size[1] / 2)))
-        if left_color == right_color:
-            return discord.Color.from_rgb(left_color[0], left_color[1], left_color[2])
-    image = image.resize((int(image.size[0] * (100 / image.size[1])), 100), Image.Resampling.LANCZOS)
-    colors = image.getcolors(image.size[0] * image.size[1])
-    if not colors:
-        return discord.Color.blurple()
-    colors.sort(key=lambda x: x[0], reverse=True)
-    while colors:
-        color = colors[0][1]
-        if color != (0, 0, 0) and color != (255, 255, 255):
-            break
-        colors.pop(0)
-    else:
-        return discord.Color.blurple()
-    try:
-        if len(color) < 3:
-            return discord.Color.blurple()
-    except TypeError:
-        return discord.Color.blurple()
-    return discord.Color.from_rgb(color[0], color[1], color[2])
-
-
-def paginator(items, embed_data, author: str, current_info: dict, per_page=10, hard_limit=100):
-    """This function builds a complete list of embeds for the paginator.
-        :param per_page: The amount of items per page.
-        :param embed_data: The data for the embeds.
-        :param items: The list to insert for the embeds.
-        :param hard_limit: The hard limit of items to paginate.
-        :param author: The username of the user who requested the queue.
-        :param current_info: The current song info dict.
-        :return: A list of embeds."""
-    pages = []
-    # Split the list into chunks of per_page
-    chunks = [items[i:i + per_page] for i in range(0, len(items), per_page)]
-    # Check if the amount of chunks is larger than the hard limit
-    if len(chunks) > hard_limit:
-        # If it is, then we will just return the first hard_limit pages
-        chunks = chunks[:hard_limit]
-    # Loop through the chunks
-    index = 1
-    for chunk in chunks:
-        # Create a new embed
-        embed = discord.Embed(**embed_data)
-        embed.description = f"Currently playing: {current_info['title']}\nFor more info use /nowplaying"
-        embed.set_footer(text=f"Requested by {author}")
-        # Add the items to the embed
-        for item in chunk:
-            embed.add_field(name=f"{index}. {item.title}", value=f"{item.author} [Source Video]({item.uri})",
-                            inline=False)
-            index += 1
-        # Add the embed to the pages
-        pages.append(embed)
-    return pages
-
-
-def limit(string: str, limit: int):
-    """
-    Limit the length of a string
-
-    :param string: The string to limit
-    :param limit: The limit of the string
-    :return: The limited string
-    """
-    if len(string) > limit:
-        return string[:limit - 3] + "..."
-    return string
-
-
 def setup(bot):
     bot.add_cog(Music(bot, bot.logger))
+
