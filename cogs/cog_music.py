@@ -307,7 +307,7 @@ class Music(commands.Cog):
         if isinstance(error, discord.errors.Forbidden):
             await self.handle_permission_error(ctx, "send_messages")
         elif isinstance(error, commands.MissingPermissions):
-            await self.handle_permission_error(ctx, "manage_messages")
+            await self.handle_permission_error(ctx, ", ".join(error.missing_permissions))
         if isinstance(error, commands.CommandInvokeError):
             embed = discord.Embed(title="Error", description=f"```{error.original}```", color=discord.Color.red())
             self.logger.error(f"Error in {ctx.command.name}: {error.original}\n{tb}")
@@ -324,6 +324,14 @@ class Music(commands.Cog):
         guild = ctx.guild
         user = ctx.author
         # Search for a channel where the bot has permission to send messages
+        # try original channel first
+        permissions = ctx.channel.permissions_for(guild.me)
+        if permissions.send_messages:
+            await ctx.respond(
+                f"{user.mention}, I am missing the `{missing_permission}` permission. Please check my permissions.",
+                ephemeral=True
+            )
+            return
         for channel in guild.text_channels:
             permissions = channel.permissions_for(guild.me)
             if permissions.send_messages:
