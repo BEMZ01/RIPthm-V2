@@ -766,7 +766,7 @@ class Music(commands.Cog):
                 permissions = ctx.author.voice.channel.permissions_for(ctx.me)
 
                 if not permissions.connect or not permissions.speak:  # Check user limit too?
-                    raise commands.CommandInvokeError(Exception('I need the `CONNECT` and `SPEAK` permissions.'))
+                    raise commands.MissingPermissions(['CONNECT', 'SPEAK'])
 
                 player.store('channel', ctx.channel.id)
                 player.store('VoiceChannel', ctx.author.voice.channel.id)
@@ -908,7 +908,8 @@ class Music(commands.Cog):
         permissions = channel.permissions_for(ctx.me)
 
         if not permissions.connect or not permissions.speak:
-            raise commands.CommandInvokeError(Exception('I need the `CONNECT` and `SPEAK` permissions.'))
+            raise commands.MissingPermissions(['CONNECT', 'SPEAK'])
+
         await channel.connect(cls=LavalinkVoiceClient)
         await ctx.respond(f'Joined {channel.name}', ephemeral=True)
 
