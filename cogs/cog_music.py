@@ -26,6 +26,7 @@ import time
 import sponsorblock as sb
 from utils.topgg_api import TopGGAPI
 from utils.generic import Generate_color, paginator, limit, progress_bar
+from utils.profanity import ProfanityFilter
 
 load_dotenv()
 SPOTIFY_CLIENT_ID = str(os.getenv('SPOTIFY_CLIENT_ID'))
@@ -160,6 +161,7 @@ class Music(commands.Cog):
         self.logger.propagate = False
         self.disconnect_timer = False
         self.bot = bot
+        self.profanity_filter = ProfanityFilter()
         self.playing_message = None
         self.update_playing_message.start()
         self.test_vid.start()
@@ -281,6 +283,9 @@ class Music(commands.Cog):
                 listening = False
             else:
                 status = "music 🎵"
+        # Profanity filter the status
+        # This will replace only profane words with asterisks, not the entire string
+        status = self.profanity_filter.filter(status)
         if status != self.last_status:
             self.logger.info(f"Updating status to {status}")
             if len(self.bot.voice_clients) != 0:
