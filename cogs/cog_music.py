@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import io
 import json
 import logging
 import random
@@ -209,12 +210,11 @@ class Music(commands.Cog):
             await asyncio.sleep(2.5)
             try:
                 results = await self.bot.lavalink.get_tracks("ytmsearch:Test")
-                if not results or not results['tracks']:
+                if not results or not results.tracks:
                     self.logger.error("Lavalink failed to connect.")
                     return
-                elif results['tracks']:
-                    self.logger.info(f"Connected to Lavalink. Test video: {results['tracks'][0]['info']['title']}")
-            except IndexError as e:
+                self.logger.info(f"Connected to Lavalink. Test video: {results.tracks[0].title}")
+            except (IndexError, AttributeError) as e:
                 self.logger.error(f"Failed to connect to Lavalink: {e}")
                 return
         else:
@@ -307,6 +307,66 @@ class Music(commands.Cog):
                 break
             await asyncio.sleep(1)
 
+    async def interaction_send(self, ctx, *, content: str = None,
+                               embed: discord.Embed = None, ephemeral: bool = True, delete_after: int = None,
+                               **kwargs):
+        """Send a slash-command response safely even if the initial interaction is already acknowledged."""
+        try:
+            response = getattr(ctx, "response", None)
+            if response is not None and response.is_done():
+                return await ctx.followup.send(content=content, embed=embed, ephemeral=ephemeral,
+                                               delete_after=delete_after, **kwargs)
+            if hasattr(ctx, "respond"):
+                return await ctx.respond(content=content, embed=embed, ephemeral=ephemeral, delete_after=delete_after,
+                                         **kwargs)
+            if hasattr(ctx, "send"):
+                return await ctx.send(content=content, embed=embed, delete_after=delete_after, **kwargs)
+            return None
+        except discord.errors.NotFound:
+            self.logger.warning("Interaction expired before a response could be sent.")
+            return None
+
+    async def safe_edit_original(self, interaction: discord.Interaction, **kwargs):
+        """Edit an interaction's original response without raising on expired interactions."""
+        try:
+            return await interaction.edit_original_response(**kwargs)
+        except discord.errors.NotFound:
+            self.logger.warning("Interaction expired before original response could be edited.")
+            return None
+
+    async def set_bot_pause_mute(self, guild: discord.Guild, muted: bool):
+        """Mirror player pause state in voice by self-muting/unmuting the bot."""
+        if guild is None or guild.voice_client is None or guild.voice_client.channel is None:
+            return
+        try:
+            await guild.change_voice_state(channel=guild.voice_client.channel, self_mute=muted)
+        except (discord.errors.Forbidden, discord.errors.HTTPException) as exc:
+            self.logger.warning(f"Could not update bot self-mute state to {muted}: {exc}")
+
+    async def notify_owner_error(self, message: str, tb: str):
+        """Best-effort owner notification that never raises into command handlers."""
+        owner_id = getattr(self.bot, "owner_id", None)
+        if not owner_id:
+            self.logger.error(f"Owner ID is not set. Original error: {message}\n{tb}")
+            return
+
+        user = self.bot.get_user(owner_id)
+        if user is None:
+            try:
+                user = await self.bot.fetch_user(owner_id)
+            except (discord.errors.NotFound, discord.errors.HTTPException) as exc:
+                self.logger.error(f"Failed to fetch owner user {owner_id}: {exc}. Original error: {message}\n{tb}")
+                return
+
+        try:
+            if len(f"{message}\n```{tb}```") > 2000:
+                tb_file = io.BytesIO(tb.encode("utf-8"))
+                await user.send(message, file=discord.File(tb_file, "traceback.txt"))
+            else:
+                await user.send(f"{message}\n```{tb}```")
+        except (discord.errors.Forbidden, discord.errors.HTTPException) as exc:
+            self.logger.error(f"Could not DM owner about error: {exc}. Original error: {message}\n{tb}")
+
     async def cog_command_error(self, ctx: commands.Context, error: commands.CommandError):
         tb = ''.join(traceback.format_exception(type(error), error, error.__traceback__))
         if isinstance(error, discord.errors.Forbidden):
@@ -316,15 +376,11 @@ class Music(commands.Cog):
         if isinstance(error, commands.CommandInvokeError):
             embed = discord.Embed(title="Error", description=f"```{error.original}```", color=discord.Color.red())
             self.logger.error(f"Error in {ctx.command.name}: {error.original}\n{tb}")
-            await ctx.respond(embed=embed, ephemeral=True, delete_after=10)
+            await self.interaction_send(ctx, embed=embed, ephemeral=True, delete_after=10)
         #if the error is not isinstance(error, commands.MissingPermissions):
         if not isinstance(error, commands.CommandInvokeError):
             self.logger.error(f"Error in {ctx.command.name}: {error}\n{tb}")
-            user = self.bot.get_user(self.bot.owner_id)
-            if len(f"Error in {ctx.command.name}: {error}\n```{tb}```") > 2000:
-                await user.send(f"Error in {ctx.command.name}: {error}", file=discord.File(tb, "traceback.txt"))
-            else:
-                await user.send(f"Error in {ctx.command.name}: {error}\n```{tb}```")
+            await self.notify_owner_error(f"Error in {ctx.command.name}: {error}", tb)
 
     async def handle_permission_error(self, ctx, missing_permission):
         """Handle permission errors by finding an alternative channel or DMing the user."""
@@ -390,37 +446,43 @@ class Music(commands.Cog):
     @tasks.loop(seconds=30)
     async def check_call(self):
         """Check the voice channel to see if the bot is the only one in the channel"""
-        try:
-            player = self.bot.lavalink.player_manager.get(self.playing_message.guild.id)
-            channel = self.bot.get_channel(player.fetch('VoiceChannel'))
-            client = channel.guild.voice_client
-        except AttributeError:
-            self.logger.warning("AttributeError in check_call. Ignoring.")
-            pass
-        else:
-            # if the player is connected and the bot is the only one in the channel (not counting other bots and itself)
-            self.logger.debug(
-                f'There are {len([member for member in channel.members if not member.bot])} members in the vc.')
-            if player.is_connected and len(
-                    [member for member in channel.members if not member.bot]) == 0 and not self.disconnect_timer:
-                self.disconnect_timer = True
-                await self.playing_message.channel.send(
-                    "`I will leave the voice channel in 30 seconds if no one joins.`",
-                    delete_after=60)
-                await asyncio.sleep(30)
-                if player.is_connected and len(
-                        [member for member in channel.members if not member.bot]) == 0 and self.disconnect_timer:
-                    self.disconnect_timer = False
-                    self.stop_import = True
-                    await player.set_pause(True)
-                    await client.disconnect(force=True)
-                    # await player.reset_filters()
-                    await self.playing_message.delete()
-                    await self.playing_message.channel.send("`I have left the voice channel because I was alone.`\n"
-                                                            "Unpause the music with `/pause`",
-                                                            delete_after=10)
-                else:
-                    self.disconnect_timer = False
+        if self.playing_message is None or not hasattr(self.bot, 'lavalink') or self.bot.lavalink is None:
+            return
+
+        player = self.bot.lavalink.player_manager.get(self.playing_message.guild.id)
+        if player is None:
+            return
+
+        channel_id = player.fetch('VoiceChannel')
+        channel = self.bot.get_channel(channel_id) if channel_id else None
+        client = channel.guild.voice_client if channel else None
+        if channel is None or client is None:
+            return
+
+        # if the player is connected and the bot is the only one in the channel (not counting other bots and itself)
+        self.logger.debug(
+            f'There are {len([member for member in channel.members if not member.bot])} members in the vc.')
+        if player.is_connected and len([member for member in channel.members if not member.bot]) == 0 and not self.disconnect_timer:
+            self.disconnect_timer = True
+            await self.playing_message.channel.send(
+                "`I will leave the voice channel in 30 seconds if no one joins.`",
+                delete_after=60)
+            await asyncio.sleep(30)
+            if player.is_connected and len([member for member in channel.members if not member.bot]) == 0 and self.disconnect_timer:
+                self.disconnect_timer = False
+                self.stop_import = True
+                await player.set_pause(True)
+                await self.set_bot_pause_mute(channel.guild, True)
+                await client.disconnect(force=True)
+                # await player.reset_filters()
+                msg_channel = self.playing_message.channel
+                await self.playing_message.delete()
+                self.playing_message = None
+                await msg_channel.send("`I have left the voice channel because I was alone.`\n"
+                                       "Unpause the music with `/pause`",
+                                       delete_after=10)
+            else:
+                self.disconnect_timer = False
 
     @tasks.loop(seconds=5)
     async def update_playing_message(self, ctx=None):
@@ -429,8 +491,10 @@ class Music(commands.Cog):
             player = self.bot.lavalink.player_manager.get(interaction.guild.id)
             if player.paused:
                 await player.set_pause(False)
+                await self.set_bot_pause_mute(interaction.guild, False)
             else:
                 await player.set_pause(True)
+                await self.set_bot_pause_mute(interaction.guild, True)
             await self.update_playing_message()
 
         async def skip_callback(interaction):
@@ -669,10 +733,9 @@ class Music(commands.Cog):
     @update_playing_message.error
     async def update_playing_message_error(self, exception):
         self.logger.error(f"Error in update_playing_message: {exception}")
-        user = self.bot.get_user(self.bot.owner_id)
         tb = traceback.format_exception(type(exception), exception, exception.__traceback__)
         tb = ''.join(tb)
-        await user.send(f"Error in update_playing_message: {exception}\n```{tb}```")
+        await self.notify_owner_error(f"Error in update_playing_message: {exception}", tb)
         self.update_playing_message.restart()
 
     @tasks.loop(seconds=1)
@@ -844,26 +907,30 @@ class Music(commands.Cog):
                             pass
                         return
                 self.logger.info("Getting similar tracks...")
-                tracks = self.get_similar_tracks(self.last_track)
-                if tracks is None:
+                candidates = self.get_similar_tracks(self.last_track)
+                if candidates is None:
                     self.logger.info("No similar tracks found. Falling back to YouTube search")
                     tracks = await player.node.get_tracks(f"ytmsearch:{self.last_track.author}")
-                    # if there are more than 10 results, take the first 10 and replace tracks['tracks'] with them
-                    # TypeError: 'LoadResult' object does not support item assignment
-                    if len(tracks['tracks']) > 10:
-                        tracks = tracks['tracks'][:10]
-                        tracks = [f"{track['info']['title']} {track['info']['author']}" for track in tracks]
-                    elif tracks and tracks['tracks']:
-                        tracks = [f"{track['info']['title']} {track['info']['author']}" for track in tracks['tracks']]
+                    if tracks and tracks.tracks:
+                        ytm_tracks = tracks.tracks[:10]
+                        candidates = [
+                            {
+                                "query": f"{track.title} {track.author}",
+                                "name": track.title,
+                                "artist": track.author,
+                                "match": 0.0,
+                            }
+                            for track in ytm_tracks
+                        ]
                     else:
                         self.logger.info("No similar tracks found.")
 
-                if tracks:
-                    for track in tracks:
-                        results = await player.node.get_tracks(f"ytmsearch:{track}")
-                        if results and results['tracks']:
-                            track = results['tracks'][0]
-                            player.add(track=track)
+                if candidates:
+                    ranked_tracks = await self.rank_recommendations_by_views(
+                        player, candidates, self.last_track.author
+                    )
+                    for track in ranked_tracks[:10]:
+                        player.add(track=track)
                     if not player.is_playing:
                         await player.play()
                 else:
@@ -881,28 +948,145 @@ class Music(commands.Cog):
                     pass
                 return
 
+    def _normalize_artist(self, artist_name: str) -> str:
+        if not artist_name:
+            return ""
+        artist_name = artist_name.lower().replace(" - topic", "").strip()
+        artist_name = re.sub(r"[^a-z0-9\s]", " ", artist_name)
+        return re.sub(r"\s+", " ", artist_name).strip()
+
+    def _artist_weight(self, candidate_artist: str, current_artist: str) -> float:
+        normalized_candidate = self._normalize_artist(candidate_artist)
+        normalized_current = self._normalize_artist(current_artist)
+        if not normalized_candidate or not normalized_current:
+            return 1.0
+        if normalized_candidate == normalized_current:
+            return 1.35
+        if normalized_candidate in normalized_current or normalized_current in normalized_candidate:
+            return 1.2
+        candidate_tokens = set(normalized_candidate.split())
+        current_tokens = set(normalized_current.split())
+        if candidate_tokens and current_tokens and candidate_tokens.intersection(current_tokens):
+            return 1.1
+        return 1.0
+
+    def _parse_view_count_text(self, text: str) -> int:
+        if not text:
+            return 0
+        match = re.search(r"([\d.,]+)\s*([KMBkmb]?)", text)
+        if not match:
+            digits = re.sub(r"\D", "", text)
+            return int(digits) if digits else 0
+        number = float(match.group(1).replace(",", ""))
+        suffix = match.group(2).upper()
+        multiplier = {"": 1, "K": 1_000, "M": 1_000_000, "B": 1_000_000_000}.get(suffix, 1)
+        return int(number * multiplier)
+
+    async def get_youtube_view_count(self, video_id: str) -> int:
+        if not video_id:
+            return 0
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        timeout = aiohttp.ClientTimeout(total=8)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        }
+        try:
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        return 0
+                    html = await response.text()
+        except Exception:
+            return 0
+
+        direct_match = re.search(r'"viewCount"\s*:\s*"(\d+)"', html)
+        if direct_match:
+            return int(direct_match.group(1))
+
+        simple_text_match = re.search(r'"simpleText"\s*:\s*"([^\"]*views)"', html)
+        if simple_text_match:
+            return self._parse_view_count_text(simple_text_match.group(1))
+
+        return 0
+
+    async def rank_recommendations_by_views(self, player, candidates, current_artist: str):
+        ranked = []
+        for candidate in candidates:
+            query = candidate.get("query")
+            if not query:
+                continue
+
+            try:
+                results = await player.node.get_tracks(f"ytmsearch:{query}")
+            except Exception as exc:
+                self.logger.debug(f"Recommendation lookup failed for '{query}': {exc}")
+                continue
+
+            if not results or not results.tracks:
+                continue
+
+            ytm_track = results.tracks[0]
+            views = await self.get_youtube_view_count(getattr(ytm_track, "identifier", None))
+            artist_weight = self._artist_weight(getattr(ytm_track, "author", ""), current_artist)
+            match_weight = 1.0 + float(candidate.get("match", 0.0))
+            score = max(views, 1) * artist_weight * match_weight
+
+            ranked.append((score, views, artist_weight, ytm_track))
+
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        self.logger.info(f"Ranked {len(ranked)} recommendations by view count and artist similarity.")
+        return [item[3] for item in ranked]
+
     def get_similar_tracks(self, track):
         if os.getenv('LASTFM_API_KEY') is None:
             self.logger.warning("LASTFM_API_KEY not set, skipping similar tracks.")
             return None
         try:
-            if " - Topic" in track.author:
-                track.author = track.author.replace(" - Topic", "")
-            track.title = re.sub(r'\([^)]*\)', '', track.title)
-            track.title = re.sub(r'\[[^)]*\]', '', track.title)
-            track.title = track.title.strip()
+            author = getattr(track, "author", "") or ""
+            title = getattr(track, "title", "") or ""
+            if " - Topic" in author:
+                author = author.replace(" - Topic", "")
+            title = re.sub(r'\([^)]*\)', '', title)
+            title = re.sub(r'\[[^)]*\]', '', title)
+            title = title.strip()
             response = requests.get(
-                f"https://ws.audioscrobbler.com/2.0/?method=track.getsimilar&artist={track.author}&track={track.title}&api_key={os.getenv('LASTFM_API_KEY')}&format=json&limit=10&autocorrect=1"
+                "https://ws.audioscrobbler.com/2.0/",
+                params={
+                    "method": "track.getsimilar",
+                    "artist": author,
+                    "track": title,
+                    "api_key": os.getenv('LASTFM_API_KEY'),
+                    "format": "json",
+                    "limit": 10,
+                    "autocorrect": 1,
+                },
+                timeout=10,
             )
             if response.status_code == 200:
                 data = response.json()
                 if 'similartracks' in data and 'track' in data['similartracks']:
                     tracks = data['similartracks']['track']
                     if tracks:
-                        tracks = {track['name']: track for track in tracks}.values()
-                        tracks = sorted(tracks, key=lambda x: x['match'], reverse=True)
-                        self.logger.info(f"Found {len(tracks)} similar tracks.")
-                        return (f"{track['name']} {track['artist']['name']}" for track in tracks)
+                        unique_tracks = {}
+                        for similar in tracks:
+                            name = (similar.get('name') or "").strip()
+                            similar_artist = (similar.get('artist', {}).get('name') or "").strip()
+                            if not name or not similar_artist:
+                                continue
+                            key = (name.lower(), similar_artist.lower())
+                            match_score = float(similar.get('match', 0.0) or 0.0)
+                            existing = unique_tracks.get(key)
+                            if existing is None or match_score > existing["match"]:
+                                unique_tracks[key] = {
+                                    "query": f"{name} {similar_artist}",
+                                    "name": name,
+                                    "artist": similar_artist,
+                                    "match": match_score,
+                                }
+                        ordered = sorted(unique_tracks.values(), key=lambda x: x['match'], reverse=True)
+                        self.logger.info(f"Found {len(ordered)} similar tracks.")
+                        return ordered
             self.logger.error(f"Error fetching similar tracks: {response.text}")
         except Exception as e:
             self.logger.error(f"Exception in get_similar_tracks: {e}")
@@ -938,8 +1122,11 @@ class Music(commands.Cog):
     async def play(self, ctx: discord.ApplicationContext, *, query: str, shuffle: bool = False,
                    source: str = "youtube_music"):
         """ Searches and plays a song from a given query. """
-        await ctx.respond("Processing your request...", ephemeral=True)
-        # Ensure the interaction is responded to before lengthy operations
+        try:
+            await ctx.defer(ephemeral=True)
+        except discord.errors.NotFound:
+            self.logger.warning("Interaction expired before /play could defer.")
+
         if not ctx.guild:
             return None
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
@@ -967,8 +1154,8 @@ class Music(commands.Cog):
                         return None
                     bquery = f'ytsearch:happy birthday {birthday["name"].lower()} EpicHappyBirthdays'
                     results = await player.node.get_tracks(bquery)
-                    if results and results['tracks']:
-                        track = results['tracks'][0]
+                    if results and results.tracks:
+                        track = results.tracks[0]
                         player.add(requester=ctx.author.id, track=track)
                         if not player.is_playing:
                             await player.play()
@@ -987,8 +1174,9 @@ class Music(commands.Cog):
         if query.startswith('https://open.spotify.com/playlist/') or query.startswith(
                 "https://open.spotify.com/album/"):
             self.stop_import = False
-            await ctx.respond(
-                "👍 `Started import of Spotify to YouTube, please watch the next message for progress.`",
+            await self.interaction_send(
+                ctx,
+                content="👍 `Started import of Spotify to YouTube, please watch the next message for progress.`",
                 delete_after=10, ephemeral=True)
             player = self.bot.lavalink.player_manager.get(ctx.guild.id)
             try:
@@ -1016,8 +1204,12 @@ class Music(commands.Cog):
                 elif "/playlist/" in query:
                     playlist_info = sp.playlist(query)
             except spotipy.SpotifyException as e:
-                await ctx.respond(f"👎 `Failed to import Spotify playlist. ({e})`\nIs the playlist private?",
-                                  ephemeral=True, delete_after=10)
+                await self.interaction_send(
+                    ctx,
+                    content=f"👎 `Failed to import Spotify playlist. ({e})`\nIs the playlist private?",
+                    ephemeral=True,
+                    delete_after=10
+                )
                 await message.delete()
                 return None
             start_time = time.time()
@@ -1025,7 +1217,8 @@ class Music(commands.Cog):
             batch_size = max(1, len(tracks) // bar_length)
             for i in range(0, len(tracks), batch_size):
                 if self.stop_import:
-                    await ctx.respond("👍 `Stopped importing Spotify playlist.`", ephemeral=True, delete_after=10)
+                    await self.interaction_send(ctx, content="👍 `Stopped importing Spotify playlist.`", ephemeral=True,
+                                                delete_after=10)
                     await message.delete()
                     self.stop_import = False
                     return None
@@ -1043,16 +1236,16 @@ class Music(commands.Cog):
                     self.logger.error(f"Error fetching tracks: {e}")
                     continue
                 for result in results:
-                    if not result or not result['tracks']:
+                    if not result or not result.tracks:
                         self.logger.error(f"No tracks found for query: {squery}")
                         # Backup search on YouTube
                         squery_backup = squery.replace('ytmsearch:', 'ytsearch:')
                         self.logger.info(f"Attempting backup search on YouTube for query: {squery_backup}")
                         result = await player.node.get_tracks(squery_backup)
-                        if not result or not result['tracks']:
+                        if not result or not result.tracks:
                             self.logger.error(f"No tracks found for backup query: {squery_backup}")
                             continue
-                    track = result['tracks'][0]
+                    track = result.tracks[0]
                     player.add(requester=ctx.author.id, track=track)
                 if not player.is_playing:
                     await player.play()
@@ -1109,34 +1302,36 @@ class Music(commands.Cog):
         # Results could be None if Lavalink returns an invalid response (non-JSON/non-200 (OK)).
         # Alternatively, results.tracks could be an empty array if the query yielded no tracks.
         if not results or not results.tracks:
-            return await ctx.respond('Nothing found!', delete_after=10, ephemeral=True)
+            return await self.interaction_send(ctx, content='Nothing found!', delete_after=10, ephemeral=True)
         elif results.load_type == LoadType.EMPTY:
-            return await ctx.respond(f'Nothing found for `{query}`!', delete_after=10, ephemeral=True)
+            return await self.interaction_send(ctx, content=f'Nothing found for `{query}`!', delete_after=10,
+                                               ephemeral=True)
 
         embed = discord.Embed(color=discord.Color.blurple(), title="Fetching song information...")
 
-        if results.load_type == 'PLAYLIST':
+        if results.load_type == LoadType.PLAYLIST:
             # If the query was a playlist, we add all the tracks to the queue.
             for track in results.tracks:
                 player.add(requester=ctx.author.id, track=track)
             self.logger.debug(f"Queue length: {len(player.queue)}")
-        elif results.load_type == 'SEARCH':
+        elif results.load_type == LoadType.SEARCH:
             # If the query was a search query, we take the top item from the search results.
             track = results.tracks[0]
             player.add(requester=ctx.author.id, track=track)
             self.logger.debug(f"Queue length: {len(player.queue)}")
-        elif results.load_type == 'TRACK':
+        elif results.load_type == LoadType.TRACK:
             # If the query was a single video, we add it to the queue.
             track = results.tracks[0]
             player.add(requester=ctx.author.id, track=track)
-        elif results.load_type == 'NO_MATCHES':
-            return await ctx.respond('Nothing found!', delete_after=10, ephemeral=True)
-        elif results.load_type == 'LOAD_FAILED':
-            return await ctx.respond('Failed to load track.', delete_after=10, ephemeral=True)
+        elif str(results.load_type) == 'NO_MATCHES':
+            return await self.interaction_send(ctx, content='Nothing found!', delete_after=10, ephemeral=True)
+        elif str(results.load_type) == 'LOAD_FAILED':
+            return await self.interaction_send(ctx, content='Failed to load track.', delete_after=10, ephemeral=True)
         else:
-            return await ctx.respond(f'Unknown results type: {results.load_type}', delete_after=10, ephemeral=True)
+            return await self.interaction_send(ctx, content=f'Unknown results type: {results.load_type}',
+                                               delete_after=10, ephemeral=True)
         # send thumbs up
-        await ctx.respond("Enqueued song", delete_after=1, ephemeral=True)
+        await self.interaction_send(ctx, content="Enqueued song", delete_after=1, ephemeral=True)
         # We don't want to call .play() if the player is playing as that will effectively skip
         # the current track.
         if not player.is_playing or player.fetch('VoiceState') in ['-1', '0']:
@@ -1384,21 +1579,25 @@ class Music(commands.Cog):
     async def pause(self, ctx: discord.ApplicationContext):
         """ Pauses the current track. """
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
-        if player.paused:
-            await player.set_pause(False)
-            await ctx.respond('▶ | Resumed.', delete_after=5)
-            return
         if not ctx.voice_client:
-            return await ctx.respond('Not connected.', delete_after=5, ephemeral=True)
+            return await self.interaction_send(ctx, content='Not connected.', delete_after=5, ephemeral=True)
 
         if not ctx.author.voice or (player.is_connected and ctx.author.voice.channel.id != int(player.channel_id)):
-            return await ctx.respond('You\'re not in my voice channel!', delete_after=5, ephemeral=True)
+            return await self.interaction_send(ctx, content='You\'re not in my voice channel!', delete_after=5,
+                                               ephemeral=True)
+
+        if player.paused:
+            await player.set_pause(False)
+            await self.set_bot_pause_mute(ctx.guild, False)
+            await self.interaction_send(ctx, content='▶ | Resumed.', delete_after=5)
+            return
 
         if not player.is_playing:
-            return await ctx.respond('Nothing playing.', delete_after=5, ephemeral=True)
+            return await self.interaction_send(ctx, content='Nothing playing.', delete_after=5, ephemeral=True)
 
         await player.set_pause(True)
-        await ctx.respond('⏸ | Paused the song.', delete_after=5)
+        await self.set_bot_pause_mute(ctx.guild, True)
+        await self.interaction_send(ctx, content='⏸ | Paused the song.', delete_after=5)
 
     @commands.slash_command(name="loop", description="Cycle loop")
     async def loop(self, ctx: discord.ApplicationContext, type: str = None):
@@ -1630,18 +1829,22 @@ class Music(commands.Cog):
             default="youtube_music")
     async def search(self, ctx: discord.ApplicationContext, query: str, service: str = "youtube_music"):
         async def dropdown_callback(interaction: discord.Interaction):
-            await interaction.response.defer(ephemeral=True)
+            try:
+                await interaction.response.defer(ephemeral=True)
+            except discord.errors.NotFound:
+                self.logger.warning("Dropdown interaction expired before defer.")
+                return
 
             selected_value = interaction.data['values'][0]
 
             if not hasattr(self.bot,
                            'lavalink') or self.bot.lavalink is None or not self.bot.lavalink.node_manager.nodes:
                 self.logger.error("Lavalink is not initialized/ready on the bot object in dropdown.")
-                await interaction.edit_original_response(content="Music system error: Lavalink not ready.", view=None)
+                await self.safe_edit_original(interaction, content="Music system error: Lavalink not ready.", view=None)
                 return
             if not interaction.guild_id:
                 self.logger.error("Interaction guild_id is None in dropdown_callback.")
-                await interaction.edit_original_response(content="Error: Guild context not found.", view=None)
+                await self.safe_edit_original(interaction, content="Error: Guild context not found.", view=None)
                 return
 
             player = self.bot.lavalink.player_manager.get(interaction.guild_id)
@@ -1661,7 +1864,7 @@ class Music(commands.Cog):
                     results_lavalink = await player.node.get_tracks(query_for_lavalink)
                 except Exception as e:
                     self.logger.error(f"Error processing Spotify track URI {selected_value}: {e}")
-                    await interaction.edit_original_response(content=f"Error processing Spotify track: {e}", view=None)
+                    await self.safe_edit_original(interaction, content=f"Error processing Spotify track: {e}", view=None)
                     return
             else:
                 results_lavalink = await player.node.get_tracks(selected_value)
@@ -1672,8 +1875,11 @@ class Music(commands.Cog):
             final_track_display_name = f"{actual_track_title} by {actual_track_author}" if actual_track_author else actual_track_title
 
             if not results_lavalink or not results_lavalink.tracks:
-                await interaction.edit_original_response(
-                    content=f"Could not find track information for: {final_track_display_name}.", view=None)
+                await self.safe_edit_original(
+                    interaction,
+                    content=f"Could not find track information for: {final_track_display_name}.",
+                    view=None
+                )
                 return
 
             track_to_play = results_lavalink.tracks[0]
@@ -1693,7 +1899,7 @@ class Music(commands.Cog):
                 else:
                     response_message_content = (f"🎶 Track **{final_track_display_name}** added to queue. Join a voice "
                                                 f"channel to play.")
-                await interaction.edit_original_response(content=response_message_content, view=None)
+                await self.safe_edit_original(interaction, content=response_message_content, view=None)
                 return
 
             bot_vc = interaction.guild.voice_client if interaction.guild else None
@@ -1734,7 +1940,7 @@ class Music(commands.Cog):
                 else:
                     response_message_content = f"🎶 Track **{final_track_display_name}** added to queue."
 
-            await interaction.edit_original_response(content=response_message_content, view=None)
+            await self.safe_edit_original(interaction, content=response_message_content, view=None)
             current_playing_msg = self.get_playing_message(interaction.guild_id)
 
             if playback_started_successfully and interaction.channel:
@@ -1773,10 +1979,10 @@ class Music(commands.Cog):
                             f"interaction.channel is None or interaction object is malformed for guild {interaction.guild_id}.")
 
         if not hasattr(self.bot, 'lavalink') or self.bot.lavalink is None or not self.bot.lavalink.node_manager.nodes:
-            await ctx.respond("Music system is not ready. Please try again later.", ephemeral=True)
+            await self.interaction_send(ctx, content="Music system is not ready. Please try again later.", ephemeral=True)
             return
         if not ctx.guild_id:
-            await ctx.respond("This command can only be used in a server.", ephemeral=True)
+            await self.interaction_send(ctx, content="This command can only be used in a server.", ephemeral=True)
             return
 
         player = self.bot.lavalink.player_manager.get(ctx.guild_id)
@@ -1785,7 +1991,11 @@ class Music(commands.Cog):
 
         is_internal_call = "cmd" in service
         if not is_internal_call:
-            await ctx.defer(ephemeral=True)
+            try:
+                await ctx.defer(ephemeral=True)
+            except discord.errors.NotFound:
+                self.logger.warning("Interaction expired before /search could defer.")
+                return
         else:
             service = service.replace("cmd", "")
 
@@ -1794,10 +2004,7 @@ class Music(commands.Cog):
             results_spotify = sp.search(q=query, type="track", limit=20)
             if not results_spotify or not results_spotify['tracks']['items']:
                 response_content = 'Nothing found on Spotify!'
-                if is_internal_call:
-                    await ctx.edit_original_response(content=response_content, view=None)
-                else:
-                    await ctx.respond(response_content, ephemeral=True, delete_after=10)
+                await self.interaction_send(ctx, content=response_content, ephemeral=True, delete_after=10)
                 return
             options = [{"value": track['uri'],
                         "label": limit(f"{track['name']} by {track['artists'][0]['name']}", 100)} for track in
@@ -1813,10 +2020,7 @@ class Music(commands.Cog):
 
             if not results_lavalink_search or not results_lavalink_search.tracks:
                 response_content = 'Nothing found!'
-                if is_internal_call:
-                    await ctx.followup.send(content=response_content, ephemeral=True)
-                else:
-                    await ctx.respond(response_content, ephemeral=True, delete_after=10)
+                await self.interaction_send(ctx, content=response_content, ephemeral=True, delete_after=10)
                 return
 
             if (results_lavalink_search.load_type == LoadType.SEARCH or
@@ -1825,10 +2029,7 @@ class Music(commands.Cog):
                            results_lavalink_search.tracks[:25] if len(track.uri) < 100]
             else:
                 response_content = 'Nothing found or unsupported link type for search!'
-                if is_internal_call:
-                    await ctx.followup.send(content=response_content, ephemeral=True)
-                else:
-                    await ctx.respond(response_content, ephemeral=True, delete_after=10)
+                await self.interaction_send(ctx, content=response_content, ephemeral=True, delete_after=10)
                 return
         if options:
             view = discord.ui.View(timeout=180)
@@ -1840,16 +2041,10 @@ class Music(commands.Cog):
             view.add_item(select_menu)
 
             response_content = "Select a song to add to the queue:"
-            if is_internal_call:
-                await ctx.followup.send(content=response_content, view=view, ephemeral=True)
-            else:
-                await ctx.respond(response_content, view=view, ephemeral=True)
+            await self.interaction_send(ctx, content=response_content, view=view, ephemeral=True)
         else:
             response_content = 'Nothing found!'
-            if is_internal_call:
-                await ctx.followup.send(content=response_content, ephemeral=True)
-            else:
-                await ctx.respond(response_content, ephemeral=True, delete_after=10)
+            await self.interaction_send(ctx, content=response_content, ephemeral=True, delete_after=10)
 def setup(bot):
     bot.add_cog(Music(bot, bot.logger))
 
