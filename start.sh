@@ -34,7 +34,7 @@ if [ -f requirements.old.txt ]; then
     echo "requirements.txt has changed. Refreshing dependencies..."
     source venv/bin/activate
     python -m ensurepip --upgrade
-    python -m pip install -r requirements.new.txt
+    python -m pip install --upgrade --force-reinstall -r requirements.new.txt
     deactivate
   else
     echo "requirements.txt has not changed. Skipping dependency update."
