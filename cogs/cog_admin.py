@@ -40,7 +40,10 @@ class Admin(commands.Cog):
         if ctx.author.id == self.bot.owner_id or await self.bot.is_owner(ctx.author):
             return True
         else:
-            await ctx.respond("This is a restricted command.", ephemeral=True, delete_after=15)
+            message = await ctx.respond("This is a restricted command.", ephemeral=True, delete_after=15)
+            scheduler = getattr(self.bot, "schedule_persistent_delete", None)
+            if scheduler is not None:
+                await scheduler(message, 15)
             raise commands.NotOwner()
 
     @commands.Cog.listener()

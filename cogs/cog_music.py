@@ -184,6 +184,7 @@ class Music(commands.Cog):
         self.last_song_uri_cache = None
         self.sponsorblock_message_sent = False
         self.last_sponsorblock_message_time = 0
+        self.playing_message_refs_file = os.path.join("temp", "playing_message_refs.json")
 
     async def connect(self):
         await self.bot.wait_until_ready()
@@ -257,6 +258,7 @@ class Music(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         self.logger.info("onready event received")
+        await self.cleanup_orphaned_playing_messages()
         await self.wait_until_lavalink_ready()
         self.check_update_status.start()
         self.logger.info("Lavalink ready and cog is loaded.")
@@ -312,19 +314,35 @@ class Music(commands.Cog):
                                **kwargs):
         """Send a slash-command response safely even if the initial interaction is already acknowledged."""
         try:
+            scheduler = getattr(self.bot, "schedule_persistent_delete", None)
+            native_delete_after = delete_after
             response = getattr(ctx, "response", None)
             if response is not None and response.is_done():
-                return await ctx.followup.send(content=content, embed=embed, ephemeral=ephemeral,
-                                               delete_after=delete_after, **kwargs)
-            if hasattr(ctx, "respond"):
-                return await ctx.respond(content=content, embed=embed, ephemeral=ephemeral, delete_after=delete_after,
-                                         **kwargs)
-            if hasattr(ctx, "send"):
-                return await ctx.send(content=content, embed=embed, delete_after=delete_after, **kwargs)
-            return None
+                message = await ctx.followup.send(content=content, embed=embed, ephemeral=ephemeral,
+                                                  delete_after=native_delete_after, **kwargs)
+            elif hasattr(ctx, "respond"):
+                message = await ctx.respond(content=content, embed=embed, ephemeral=ephemeral,
+                                            delete_after=native_delete_after, **kwargs)
+            elif hasattr(ctx, "send"):
+                message = await ctx.send(content=content, embed=embed, delete_after=native_delete_after, **kwargs)
+            else:
+                message = None
+
+            if scheduler is not None and delete_after is not None and message is not None:
+                await scheduler(message, delete_after)
+            return message
         except discord.errors.NotFound:
             self.logger.warning("Interaction expired before a response could be sent.")
             return None
+
+    async def send_with_delete_tracking(self, destination, *, delete_after: int = None, **kwargs):
+        """Send a channel message and persist delete_after for restart-safe cleanup."""
+        scheduler = getattr(self.bot, "schedule_persistent_delete", None)
+        native_delete_after = delete_after
+        message = await destination.send(delete_after=native_delete_after, **kwargs)
+        if scheduler is not None and delete_after is not None:
+            await scheduler(message, delete_after)
+        return message
 
     async def safe_edit_original(self, interaction: discord.Interaction, **kwargs):
         """Edit an interaction's original response without raising on expired interactions."""
@@ -440,8 +458,92 @@ class Music(commands.Cog):
                 logging.error(f"Could not DM {ctx.author} about missing permissions.")
 
     def get_playing_message(self, guild_id):
-        # Logic to retrieve the current playing message for the guild
+        if self.playing_message is None:
+            return None
+        msg_guild = getattr(self.playing_message, "guild", None)
+        if msg_guild is None:
+            return None
+        if int(msg_guild.id) != int(guild_id):
+            return None
         return self.playing_message
+
+    def _read_playing_message_refs(self):
+        if not os.path.exists(self.playing_message_refs_file):
+            return []
+        try:
+            with open(self.playing_message_refs_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                return [entry for entry in data if isinstance(entry, dict)]
+        except (OSError, json.JSONDecodeError):
+            self.logger.warning("Failed to read playing message refs.")
+        return []
+
+    def _write_playing_message_refs(self, refs):
+        os.makedirs(os.path.dirname(self.playing_message_refs_file), exist_ok=True)
+        tmp_path = f"{self.playing_message_refs_file}.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(refs, f)
+        os.replace(tmp_path, self.playing_message_refs_file)
+
+    def store_playing_message_ref(self, guild_id, message):
+        if message is None:
+            return
+        channel_id = getattr(getattr(message, "channel", None), "id", None)
+        message_id = getattr(message, "id", None)
+        if channel_id is None or message_id is None:
+            return
+        refs = [entry for entry in self._read_playing_message_refs() if int(entry.get("guild_id", -1)) != int(guild_id)]
+        refs.append({
+            "guild_id": int(guild_id),
+            "channel_id": int(channel_id),
+            "message_id": int(message_id),
+        })
+        self._write_playing_message_refs(refs)
+
+    def delete_playing_message_ref(self, guild_id):
+        refs = [entry for entry in self._read_playing_message_refs() if int(entry.get("guild_id", -1)) != int(guild_id)]
+        self._write_playing_message_refs(refs)
+
+    def _delete_current_playing_message_ref(self):
+        if self.playing_message is None:
+            return
+        guild = getattr(self.playing_message, "guild", None)
+        if guild is None:
+            return
+        self.delete_playing_message_ref(guild.id)
+
+    async def cleanup_orphaned_playing_messages(self):
+        refs = self._read_playing_message_refs()
+        if not refs:
+            return
+
+        remaining = []
+        for entry in refs:
+            channel_id = int(entry.get("channel_id", 0))
+            message_id = int(entry.get("message_id", 0))
+            if channel_id == 0 or message_id == 0:
+                continue
+
+            channel = self.bot.get_channel(channel_id)
+            if channel is None:
+                try:
+                    channel = await self.bot.fetch_channel(channel_id)
+                except (discord.errors.NotFound, discord.errors.Forbidden):
+                    continue
+                except discord.errors.HTTPException:
+                    remaining.append(entry)
+                    continue
+
+            try:
+                message = await channel.fetch_message(message_id)
+                await message.delete()
+            except discord.errors.NotFound:
+                continue
+            except (discord.errors.Forbidden, discord.errors.HTTPException):
+                remaining.append(entry)
+
+        self._write_playing_message_refs(remaining)
 
     @tasks.loop(seconds=30)
     async def check_call(self):
@@ -464,9 +566,11 @@ class Music(commands.Cog):
             f'There are {len([member for member in channel.members if not member.bot])} members in the vc.')
         if player.is_connected and len([member for member in channel.members if not member.bot]) == 0 and not self.disconnect_timer:
             self.disconnect_timer = True
-            await self.playing_message.channel.send(
-                "`I will leave the voice channel in 30 seconds if no one joins.`",
-                delete_after=60)
+            await self.send_with_delete_tracking(
+                self.playing_message.channel,
+                content="`I will leave the voice channel in 30 seconds if no one joins.`",
+                delete_after=60,
+            )
             await asyncio.sleep(30)
             if player.is_connected and len([member for member in channel.members if not member.bot]) == 0 and self.disconnect_timer:
                 self.disconnect_timer = False
@@ -477,10 +581,13 @@ class Music(commands.Cog):
                 # await player.reset_filters()
                 msg_channel = self.playing_message.channel
                 await self.playing_message.delete()
+                self._delete_current_playing_message_ref()
                 self.playing_message = None
-                await msg_channel.send("`I have left the voice channel because I was alone.`\n"
-                                       "Unpause the music with `/pause`",
-                                       delete_after=10)
+                await self.send_with_delete_tracking(
+                    msg_channel,
+                    content="`I have left the voice channel because I was alone.`\nUnpause the music with `/pause`",
+                    delete_after=10,
+                )
             else:
                 self.disconnect_timer = False
 
@@ -507,10 +614,13 @@ class Music(commands.Cog):
             await interaction.response.defer(ephemeral=True)
             player = self.bot.lavalink.player_manager.get(interaction.guild_id)
             if not self.bot.get_channel(player.channel_id):
-                return await interaction.channel.send('Not connected.', delete_after=10)
+                return await self.send_with_delete_tracking(interaction.channel, content='Not connected.', delete_after=10)
             if interaction.user.voice.channel != self.bot.get_channel(player.channel_id):
-                return await interaction.channel.send("You are not in the same voice channel as me.",
-                                                      delete_after=10)
+                return await self.send_with_delete_tracking(
+                    interaction.channel,
+                    content="You are not in the same voice channel as me.",
+                    delete_after=10,
+                )
             self.stop_import = True
             self.bot.lavalink.player_manager.get(interaction.guild_id).queue.clear()
             await self.bot.lavalink.player_manager.get(interaction.guild_id).stop()
@@ -519,10 +629,11 @@ class Music(commands.Cog):
                     await vc.disconnect()
             try:
                 await self.playing_message.delete()
+                self._delete_current_playing_message_ref()
                 self.playing_message = None
             except AttributeError:
                 pass
-            await interaction.channel.send('*⃣ | Disconnected.', delete_after=10)
+            await self.send_with_delete_tracking(interaction.channel, content='*⃣ | Disconnected.', delete_after=10)
             return None
 
         async def shuffle_callback(interaction):
@@ -553,12 +664,23 @@ class Music(commands.Cog):
             if player.is_playing:
                 self.continue_playing = not self.continue_playing
                 if self.continue_playing:
-                    await interaction.channel.send("`Recommendations are now enabled.`", delete_after=10)
+                    await self.send_with_delete_tracking(
+                        interaction.channel,
+                        content="`Recommendations are now enabled.`",
+                        delete_after=10,
+                    )
                 else:
-                    await interaction.channel.send("`Recommendations are now disabled.`", delete_after=10)
+                    await self.send_with_delete_tracking(
+                        interaction.channel,
+                        content="`Recommendations are now disabled.`",
+                        delete_after=10,
+                    )
             else:
-                await interaction.channel.send("`Recommendations are only available while playing music.`",
-                                               delete_after=10)
+                await self.send_with_delete_tracking(
+                    interaction.channel,
+                    content="`Recommendations are only available while playing music.`",
+                    delete_after=10,
+                )
 
         try:
             player = self.bot.lavalink.player_manager.get(self.playing_message.guild.id)
@@ -567,12 +689,18 @@ class Music(commands.Cog):
             if player.fetch('VoiceStatus') == "-1":  # We have been kicked from the channel
                 self.stop_import = True
                 try:
-                    await self.playing_message.channel.send("`I have been kicked from the voice channel. :(`",
-                                                            delete_after=10)
+                    await self.send_with_delete_tracking(
+                        self.playing_message.channel,
+                        content="`I have been kicked from the voice channel. :(`",
+                        delete_after=10,
+                    )
                     await self.playing_message.delete()
+                    self._delete_current_playing_message_ref()
                 except discord.errors.Forbidden as e:
                     self.logger.error(f"Error deleting playing message: {e}")
+                    self._delete_current_playing_message_ref()
                     self.playing_message = None
+                self._delete_current_playing_message_ref()
                 self.playing_message = None
                 await player.stop()
                 player.store("VoiceStatus", "0")
@@ -718,6 +846,7 @@ class Music(commands.Cog):
                         self.logger.warning("Message not found, creating new one")
                         if self.playing_message is not None:
                             self.playing_message = await self.playing_message.channel.send("", embed=embed, view=view)
+                            self.store_playing_message_ref(self.playing_message.guild.id, self.playing_message)
                             return None
                         return None
                     except discord.errors.Forbidden:
@@ -753,10 +882,16 @@ class Music(commands.Cog):
                 except AttributeError:
                     return
                 members = channel.members if channel else []
-                voters_in_channel = []
-                for member in members:
-                    if not member.bot and self.bot.topgg.get_user_vote(member.id):
-                        voters_in_channel.append(member)
+                # If the guild is configured in VOTE_BYPASS env var, skip top.gg checking
+                # and treat the guild as having voters (so it won't prompt to vote).
+                guild_id = getattr(self.playing_message.guild, 'id', None)
+                if hasattr(self.bot, 'vote_bypass_guilds') and guild_id in getattr(self.bot, 'vote_bypass_guilds', []):
+                    voters_in_channel = [True]
+                else:
+                    voters_in_channel = []
+                    for member in members:
+                        if not member.bot and self.bot.topgg.get_user_vote(member.id):
+                            voters_in_channel.append(member)
                 try:
                     if self.last_song_uri != player.current.identifier:
                         sbc = sb.Client()
@@ -782,7 +917,12 @@ class Music(commands.Cog):
                                                           description=f"You could have saved {int(segment.end - segment.start)} seconds of silence! "
                                                                       f"Please vote for the bot on top.gg to enable automatic SponsorBlock skipping!",
                                                           color=discord.Color.brand_red())
-                                    await self.playing_message.channel.send(embed=embed, delete_after=30, view=view)
+                                    await self.send_with_delete_tracking(
+                                        self.playing_message.channel,
+                                        embed=embed,
+                                        view=view,
+                                        delete_after=30,
+                                    )
                                     self.last_sponsorblock_message_time = current_time
                                 return
                             else:
@@ -791,13 +931,71 @@ class Music(commands.Cog):
                                                       description=f'You saved **{int(segment.end - segment.start)}** seconds of filler!\n-# Segment was skipped because it was `{segment.category}`.\n',
                                                       color=discord.Color.brand_red())
                                 embed.set_footer(text=f'Use /sponsorblock to toggle the feature or press 🚫 in the playing message.')
-                                await self.playing_message.channel.send(embed=embed, delete_after=30)
+                                await self.send_with_delete_tracking(
+                                    self.playing_message.channel,
+                                    embed=embed,
+                                    delete_after=30,
+                                )
                                 self.last_sponsorblock_message_time = current_time
                                 await player.seek(int(segment.end * 1000))
 
     def cog_unload(self):
         """ Cog unload handler. This removes any event hooks that were registered. """
-        self.bot.lavalink._event_hooks.clear()
+        # Schedule asynchronous cleanup to cancel background tasks and close sessions.
+        try:
+            asyncio.create_task(self._async_cog_unload())
+        except Exception:
+            # If creating a task fails (e.g., loop closed), try best-effort cleanup.
+            try:
+                self.bot.lavalink._event_hooks.clear()
+            except Exception:
+                pass
+
+    async def _async_cog_unload(self):
+        """Asynchronous cleanup run on cog unload or program shutdown.
+        Cancels running background tasks and attempts to close network sessions (lavalink/aiohttp).
+        """
+        # Persist the current panel so startup can clean up orphaned controls.
+        try:
+            if self.playing_message is not None:
+                guild = getattr(self.playing_message, "guild", None)
+                if guild is not None:
+                    self.store_playing_message_ref(guild.id, self.playing_message)
+        except Exception:
+            pass
+
+        # Cancel tasks started by this cog
+        for task_attr in ("update_playing_message", "test_vid", "check_call", "check_update_status", "check_update_status"):
+            task = getattr(self, task_attr, None)
+            try:
+                if task is not None and hasattr(task, 'cancel'):
+                    try:
+                        task.cancel()
+                    except Exception:
+                        # Some task wrappers raise on cancel; ignore
+                        pass
+            except Exception:
+                continue
+
+        # Allow cancelled tasks to finish cancelling
+        await asyncio.sleep(0.1)
+
+        # Clear lavalink event hooks and try to close lavalink's aiohttp session
+        try:
+            if hasattr(self.bot, 'lavalink') and self.bot.lavalink is not None:
+                try:
+                    self.bot.lavalink._event_hooks.clear()
+                except Exception:
+                    pass
+                # Close lavalink internal session if present
+                try:
+                    sess = getattr(self.bot.lavalink, '_session', None)
+                    if sess is not None and not sess.closed:
+                        await sess.close()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     async def cog_before_invoke(self, ctx: discord.ApplicationContext):
         """ Command before-invoke handler. """
@@ -871,10 +1069,15 @@ class Music(commands.Cog):
                 self.logger.info("Track ended...")
                 channel = self.bot.get_channel(player.fetch('VoiceChannel'))
                 members = channel.members if channel else []
-                voters_in_channel = []
-                for member in members:
-                    if not member.bot and self.bot.topgg.get_user_vote(member.id):
-                        voters_in_channel.append(member)
+                # Respect VOTE_BYPASS for this guild
+                guild_id = guild_id if 'guild_id' in locals() else event.player.guild_id
+                if hasattr(self.bot, 'vote_bypass_guilds') and guild_id in getattr(self.bot, 'vote_bypass_guilds', []):
+                    voters_in_channel = [True]
+                else:
+                    voters_in_channel = []
+                    for member in members:
+                        if not member.bot and self.bot.topgg.get_user_vote(member.id):
+                            voters_in_channel.append(member)
                 if len(voters_in_channel) == 0:
                     self.logger.info("No voters in channel, skipping recommendations.")
                     try:
@@ -887,7 +1090,12 @@ class Music(commands.Cog):
                                               description=f"Keep the music going! "
                                                           f"Please vote for the bot on top.gg to enable recommended music!",
                                               color=discord.Color.brand_red())
-                        await self.playing_message.channel.send(embed=embed, delete_after=30, view=view)
+                        await self.send_with_delete_tracking(
+                            self.playing_message.channel,
+                            embed=embed,
+                            view=view,
+                            delete_after=30,
+                        )
                     except discord.errors.Forbidden:
                         self.logger.error("Bot cannot send messages in the current channel, skipping recommendations.")
                         await self.handle_missing_permissions(self.playing_message, discord.Embed(
@@ -902,10 +1110,11 @@ class Music(commands.Cog):
                         await guild.voice_client.disconnect(force=True)
                         try:
                             await self.playing_message.delete()
+                            self._delete_current_playing_message_ref()
                             self.playing_message = None
                         except AttributeError:
                             pass
-                        return
+                    return
                 self.logger.info("Getting similar tracks...")
                 candidates = self.get_similar_tracks(self.last_track)
                 if candidates is None:
@@ -943,6 +1152,7 @@ class Music(commands.Cog):
                 await guild.voice_client.disconnect(force=True)
                 try:
                     await self.playing_message.delete()
+                    self._delete_current_playing_message_ref()
                     self.playing_message = None
                 except AttributeError:
                     pass
@@ -1162,6 +1372,7 @@ class Music(commands.Cog):
                             embed = discord.Embed(color=discord.Color.blurple())
                             embed.title = f'Awaiting song information...'
                             self.playing_message = await ctx.channel.send(embed=embed)
+                            self.store_playing_message_ref(ctx.guild.id, self.playing_message)
         # Check if the user input might be a URL. If it isn't, we can Lavalink do a YouTube search for it instead.
         # SoundCloud searching is possible by prefixing "scsearch:" instead.
         if not url_rx.match(query):
@@ -1255,6 +1466,7 @@ class Music(commands.Cog):
                     embed.title = f'Awaiting song information...'
                     try:
                         self.playing_message = await ctx.channel.send(embed=embed)
+                        self.store_playing_message_ref(ctx.guild.id, self.playing_message)
                     except discord.errors.Forbidden:
                         self.logger.error("Bot does not have permission to send messages in this channel.")
                         # inform the user that the bot cannot send messages in this channel
@@ -1338,6 +1550,7 @@ class Music(commands.Cog):
             await player.play()
             try:
                 self.playing_message = await ctx.channel.send(embed=embed)
+                self.store_playing_message_ref(ctx.guild.id, self.playing_message)
                 return None
             except discord.errors.Forbidden:
                 self.logger.error("Bot does not have permission to send messages in this channel.")
@@ -1569,6 +1782,7 @@ class Music(commands.Cog):
         await ctx.voice_client.disconnect(force=True)
         try:
             await self.playing_message.delete()
+            self._delete_current_playing_message_ref()
             self.playing_message = None
         except AttributeError:
             pass
@@ -1789,6 +2003,7 @@ class Music(commands.Cog):
             if self.playing_message:
                 try:
                     await self.playing_message.delete()
+                    self._delete_current_playing_message_ref()
                 except discord.NotFound:
                     pass
             if not ctx.channel.permissions_for(ctx.guild.me).send_messages:
@@ -1799,6 +2014,7 @@ class Music(commands.Cog):
                                 f"check my permissions.",
                     color=discord.Color.red()
                 ))
+                self._delete_current_playing_message_ref()
                 self.playing_message = None
                 return None
             else:
@@ -1810,6 +2026,7 @@ class Music(commands.Cog):
                     self.logger.error(
                         f"Failed to send playing_message in dropdown_callback for guild {ctx.guild.id}. "
                         f"Missing permissions.")
+                    self._delete_current_playing_message_ref()
                     self.playing_message = None
                     await self.handle_missing_permissions(ctx, discord.Embed(
                         title="Error",
