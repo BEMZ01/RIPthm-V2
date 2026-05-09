@@ -12,7 +12,7 @@ yt-dlp = "^2024.7.25"
 colorthief = "^0.2.1"
 lavalink = "^5.7.1"
 py-cord = "^2.2.2"
-discord = "^2.1.0"
+discord = "^2.3.2"
 
 [tool.poetry.dev-dependencies]
 
