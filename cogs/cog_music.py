@@ -154,6 +154,23 @@ def birthday_easteregg(userID):
             return {"name": line[0], "date": line[1], "id": line[2]}
     return {"name": None, "date": None, "id": None}
 
+
+def parse_radio_config(raw_radios: str):
+    stations = {}
+    if not raw_radios:
+        return stations
+    for entry in raw_radios.split(","):
+        value = entry.strip()
+        if not value or ";" not in value:
+            continue
+        name, url = value.split(";", 1)
+        name = name.strip()
+        url = url.strip()
+        if not name or not url:
+            continue
+        stations[name.lower()] = {"name": name, "url": url}
+    return stations
+
 class Music(commands.Cog):
     def __init__(self, bot, logger):
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -168,6 +185,7 @@ class Music(commands.Cog):
         self.test_vid.start()
         self.check_call.start()
         self.sponsorBlock = True
+        self.eternal_jukebox = False
         self.continue_playing = True
         self.Effect = Effect(True, True)
         self.genius = lyricsgenius.Genius(os.getenv('GENIUS_TOKEN'))
@@ -187,6 +205,11 @@ class Music(commands.Cog):
         self.playing_message_refs_file = os.path.join("temp", "playing_message_refs.json")
         self.fetching_recommendations = False
         self.recommendations_fetched = {}  # Track fetched recommendations per guild
+        self.radio_stations = parse_radio_config(os.getenv("RADIOS", ""))
+        self.radio_stations["pirate"] = {
+            "name": "pirate",
+            "url": "https://open.spotify.com/playlist/098Oij7Ia2mktRbbTkBK0X?si=f457e15700534905",
+        }
 
     async def connect(self):
         await self.bot.wait_until_ready()
@@ -222,6 +245,12 @@ class Music(commands.Cog):
                 return
         else:
             self.logger.warning("Lavalink already connected.")
+
+    def get_radio_station(self, station: str):
+        if not station:
+            return None
+        key = station.strip().lower()
+        return self.radio_stations.get(key)
 
     async def get_skip_segments(self, uri):
         if self.last_song_uri == uri:
@@ -624,6 +653,7 @@ class Music(commands.Cog):
                     delete_after=10,
                 )
             self.stop_import = True
+            player.store("radio_name", None)
             self.bot.lavalink.player_manager.get(interaction.guild_id).queue.clear()
             await self.bot.lavalink.player_manager.get(interaction.guild_id).stop()
             for vc in self.bot.voice_clients:
@@ -658,6 +688,11 @@ class Music(commands.Cog):
         async def sponsorBlock_callback(interaction):
             await interaction.response.defer()
             self.sponsorBlock = not self.sponsorBlock
+            await self.update_playing_message()
+
+        async def eternal_jukebox_callback(interaction):
+            await interaction.response.defer()
+            self.eternal_jukebox = not self.eternal_jukebox
             await self.update_playing_message()
 
         async def recommendations_callback(interaction):
@@ -753,6 +788,7 @@ class Music(commands.Cog):
                 ))
                 return None
             if player.current:
+                current_radio = player.fetch("radio_name")
                 # check loop status
                 loop = ""
                 if player.loop == player.LOOP_SINGLE:
@@ -770,20 +806,22 @@ class Music(commands.Cog):
                     color = await Generate_color(
                         f"https://img.youtube.com/vi/{player.current.identifier}/hqdefault.jpg", random_color=True)
                 if player.paused:
-                    embed = discord.Embed(title="Paused " + loop + " " + shuffle,
-                                          description=f'**[{player.current.title}]({player.current.uri})**\n'
-                                                      f'{player.current.author}',
-                                          color=color)
+                    embed_title = "Paused " + loop + " " + shuffle
                 else:
                     try:
-                        embed = discord.Embed(title="Now Playing " + loop + " " + shuffle,
-                                              description=f'**[{player.current.title}]({player.current.uri})**\n'
-                                                          f'{player.current.author}',
-                                              color=color)
+                        embed_title = "Now Playing " + loop + " " + shuffle
                     except AttributeError:
-                        embed = discord.Embed(title="Now Playing " + loop + " " + shuffle,
-                                              description=f'[UNABLE TO GET TITLE]',
-                                              color=color)
+                        embed_title = "Now Playing " + loop + " " + shuffle
+                if current_radio:
+                    if player.paused:
+                        embed_title = f"Radio Paused • {current_radio}"
+                    else:
+                        embed_title = f"Live Radio • {current_radio}"
+                try:
+                    embed_description = f'**[{player.current.title}]({player.current.uri})**\n{player.current.author}'
+                except AttributeError:
+                    embed_description = '[UNABLE TO GET TITLE]'
+                embed = discord.Embed(title=embed_title.strip(), description=embed_description, color=color)
                 if self.CP is not None:
                     embed.set_thumbnail(url=self.CP[0]['song_art_image_url'])
                 else:
@@ -795,6 +833,9 @@ class Music(commands.Cog):
                                                 f"/hqdefault.jpg")
                 if player.current is None:
                     return None
+                elif current_radio:
+                    embed.add_field(name='Station', value=current_radio, inline=False)
+                    embed.add_field(name='Stream', value='LIVE', inline=False)
                 else:
                     embed.add_field(name='Duration', value=f'{lavalink.utils.format_time(player.position)}/'
                                                            f'{lavalink.utils.format_time(player.current.duration)} '
@@ -829,6 +870,12 @@ class Music(commands.Cog):
                         [Button(style=ButtonStyle.green, emoji="🚫", custom_id="sponsorBlock"), "sponsorBlock"])
                 else:
                     buttons.append([Button(style=ButtonStyle.red, emoji="🚫", custom_id="sponsorBlock"), "sponsorBlock"])
+                if self.eternal_jukebox:
+                    buttons.append(
+                        [Button(style=ButtonStyle.green, emoji="♾️", custom_id="eternal_jukebox"), "eternal_jukebox"])
+                else:
+                    buttons.append(
+                        [Button(style=ButtonStyle.red, emoji="♾️", custom_id="eternal_jukebox"), "eternal_jukebox"])
                 if self.continue_playing:
                     buttons.append(
                         [Button(style=ButtonStyle.green, emoji="🎧", custom_id="recommendations"), "recommendations"])
@@ -878,7 +925,7 @@ class Music(commands.Cog):
             guild_id = self.playing_message.guild.id
             
             # Fetch recommendations in the last 10 seconds of the track
-            if (player.current and self.continue_playing and self.last_track is not None and 
+            if (player.current and (self.continue_playing or self.eternal_jukebox) and self.last_track is not None and
                 not self.fetching_recommendations and guild_id not in self.recommendations_fetched):
                 remaining_ms = player.current.duration - player.position
                 # Fetch if there's less than 10 seconds remaining and more than 0
@@ -898,8 +945,8 @@ class Music(commands.Cog):
                                 if not member.bot and self.bot.topgg.get_user_vote(member.id):
                                     voters_in_channel.append(member)
                         
-                        if len(voters_in_channel) > 0:
-                            # Only fetch if there are voters
+                        if len(voters_in_channel) > 0 or self.eternal_jukebox:
+                            # Only fetch if there are voters, unless eternal jukebox is enabled
                             candidates = self.get_similar_tracks(self.last_track)
                             if candidates is None:
                                 self.logger.info("No similar tracks found. Falling back to YouTube search")
@@ -1080,7 +1127,7 @@ class Music(commands.Cog):
 
         # These are commands that require the bot to join a voice channel (i.e. initiating playback).
         # Commands such as volume/skip etc. don't require the bot to be in a voice channel so don't need listing here.
-        should_connect = ctx.command.name in ('play', 'pirate', 'quickplay', 'search')
+        should_connect = ctx.command.name in ('play', 'pirate', 'quickplay', 'search', 'radio')
         if should_connect:
             if not ctx.author.voice or not ctx.author.voice.channel:
                 # Our cog_command_error handler catches this and sends it to the voice channel.
@@ -1123,7 +1170,7 @@ class Music(commands.Cog):
             guild = self.bot.get_guild(guild_id)
             player = self.bot.lavalink.player_manager.get(guild_id)
 
-            if self.continue_playing and self.last_track is not None:
+            if (self.continue_playing or self.eternal_jukebox) and self.last_track is not None:
                 self.logger.info("Track ended...")
                 channel = self.bot.get_channel(player.fetch('VoiceChannel'))
                 members = channel.members if channel else []
@@ -1136,7 +1183,7 @@ class Music(commands.Cog):
                     for member in members:
                         if not member.bot and self.bot.topgg.get_user_vote(member.id):
                             voters_in_channel.append(member)
-                if len(voters_in_channel) == 0:
+                if len(voters_in_channel) == 0 and not self.eternal_jukebox:
                     self.logger.info("No voters in channel, skipping recommendations.")
                     try:
                         view = discord.ui.View()
@@ -1163,6 +1210,7 @@ class Music(commands.Cog):
                         ))
                     finally:
                         self.stop_import = True
+                        player.store("radio_name", None)
                         player.queue.clear()
                         await player.stop()
                         await guild.voice_client.disconnect(force=True)
@@ -1412,6 +1460,11 @@ class Music(commands.Cog):
         if not ctx.guild:
             return None
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+        artist_top_tracks = False
+        artist_name = None
+
+        if source != "radio":
+            player.store("radio_name", None)
 
         if os.path.exists('birthdays.csv'):
             now = str(datetime.datetime.now().strftime("%d/%m"))
@@ -1581,6 +1634,22 @@ class Music(commands.Cog):
             track = sp.track(query)
             self.logger.info(f"Spotify track: {track['name']} by {track['artists'][0]['name']}")
             query = f'ytmsearch:{track["name"]} {track["artists"][0]["name"]}'
+        elif query.startswith("https://open.spotify.com/artist/"):
+            try:
+                artist_info = sp.artist(query)
+                artist_name = (artist_info.get("name") or "").strip()
+                if not artist_name:
+                    raise spotipy.SpotifyException(400, -1, "Could not resolve Spotify artist name.")
+                self.logger.info(f"Spotify artist: {artist_name}")
+                query = f'ytmsearch:top songs by {artist_name}'
+                artist_top_tracks = True
+            except spotipy.SpotifyException as e:
+                return await self.interaction_send(
+                    ctx,
+                    content=f"👎 `Failed to resolve Spotify artist. ({e})`",
+                    delete_after=10,
+                    ephemeral=True,
+                )
         # Get the results for the query from Lavalink.
         results = await player.node.get_tracks(query)
         # Results could be None if Lavalink returns an invalid response (non-JSON/non-200 (OK)).
@@ -1598,6 +1667,14 @@ class Music(commands.Cog):
             for track in results.tracks:
                 player.add(requester=ctx.author.id, track=track)
             self.logger.debug(f"Queue length: {len(player.queue)}")
+        elif artist_top_tracks:
+            queued_tracks = results.tracks[:20]
+            for track in queued_tracks:
+                player.add(requester=ctx.author.id, track=track)
+            self.logger.debug(
+                f"Queued {len(queued_tracks)} top tracks for artist {artist_name}. "
+                f"Queue length: {len(player.queue)}"
+            )
         elif results.load_type == LoadType.SEARCH:
             # If the query was a search query, we take the top item from the search results.
             track = results.tracks[0]
@@ -1987,6 +2064,14 @@ class Music(commands.Cog):
         else:
             await ctx.respond("SponsorBlock has been disabled!", delete_after=5, ephemeral=True)
 
+    @commands.slash_command(name="eternaljukebox", description="Toggle The Eternal Jukebox mode.")
+    async def eternaljukebox(self, ctx: discord.ApplicationContext):
+        self.eternal_jukebox = not self.eternal_jukebox
+        if self.eternal_jukebox:
+            await ctx.respond("The Eternal Jukebox mode has been enabled!", delete_after=5, ephemeral=True)
+        else:
+            await ctx.respond("The Eternal Jukebox mode has been disabled!", delete_after=5, ephemeral=True)
+
     @commands.slash_command(name="nowplaying", description="Show the current song")
     async def nowplaying(self, ctx: discord.ApplicationContext):
         embed = discord.Embed(color=discord.Color.blurple())
@@ -2061,11 +2146,32 @@ class Music(commands.Cog):
         if ctx.user.id != self.bot.user.id:
             self.stop_import = True
 
+    @commands.slash_command(name="radio", description="Play a configured radio station")
+    @option(name="station", description="Station name from RADIOS", required=True)
+    async def radio(self, ctx: discord.ApplicationContext, station: str):
+        selected_station = self.get_radio_station(station)
+        if selected_station is None:
+            available = ", ".join(sorted(self.radio_stations.keys()))
+            return await ctx.respond(
+                f"Unknown station `{station}`. Available stations: `{available}`",
+                delete_after=10,
+                ephemeral=True,
+            )
+        await self.play(ctx, query=selected_station["url"], source="radio")
+        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+        if player.current or player.queue:
+            player.store("radio_name", selected_station["name"])
+
     @commands.slash_command(name="pirate", description="Add the pirate shanties playlist to the queue")
     @option(name="shuffle", description="Shuffle the playlist", required=False)
     async def pirate(self, ctx: discord.ApplicationContext, shuffle: bool = False):
-        await self.play(ctx, query="https://open.spotify.com/playlist/098Oij7Ia2mktRbbTkBK0X?si=f457e15700534905",
-                        shuffle=shuffle)
+        selected_station = self.get_radio_station("pirate")
+        if selected_station is None:
+            return await ctx.respond("Pirate radio is not configured.", delete_after=5, ephemeral=True)
+        await self.play(ctx, query=selected_station["url"], shuffle=shuffle, source="radio")
+        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
+        if player.current or player.queue:
+            player.store("radio_name", selected_station["name"])
 
     @commands.slash_command(name="clean", description="Cleanup spam in any channel")
     @commands.has_permissions(manage_messages=True)
@@ -2348,4 +2454,3 @@ class Music(commands.Cog):
             await self.interaction_send(ctx, content=response_content, ephemeral=True, delete_after=10)
 def setup(bot):
     bot.add_cog(Music(bot, bot.logger))
-
