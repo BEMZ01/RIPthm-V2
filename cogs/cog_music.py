@@ -37,6 +37,7 @@ url_rx = re.compile(r'https?://(?:www\.)?.+')
 sp = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLIENT_ID,
                                                                          client_secret=SPOTIFY_CLIENT_SECRET))
 PIRATE_RADIO_URL = "https://open.spotify.com/playlist/098Oij7Ia2mktRbbTkBK0X?si=f457e15700534905"
+# Keep parity with requested behavior: queue up to the top 20 tracks for artist URLs.
 ARTIST_TOP_TRACK_LIMIT = 20
 
 class Effect:
@@ -269,7 +270,8 @@ class Music(commands.Cog):
             query += f" artist:{author}"
         try:
             result = sp.search(q=query, type="track", limit=1)
-        except spotipy.SpotifyException:
+        except spotipy.SpotifyException as e:
+            self.logger.debug(f"Failed to resolve Spotify track id for Eternal Jukebox: {e}")
             return None
         tracks = (result or {}).get("tracks", {}).get("items", [])
         if not tracks:
@@ -1000,7 +1002,7 @@ class Music(commands.Cog):
                                     voters_in_channel.append(member)
                         
                         if len(voters_in_channel) > 0 or self.eternal_jukebox:
-                            # Fetch recommendations if there are voters, or eternal jukebox is enabled
+                            # Fetch if there are voters, or if eternal jukebox mode bypasses voter checks
                             candidates = self.get_similar_tracks(self.last_track)
                             if candidates is None:
                                 self.logger.info("No similar tracks found. Falling back to YouTube search")
@@ -1698,7 +1700,7 @@ class Music(commands.Cog):
                 artist_info = sp.artist(query)
                 artist_name = (artist_info.get("name") or "").strip()
                 if not artist_name:
-                    raise spotipy.SpotifyException(400, -1, "Spotify artist returned without a valid name field.")
+                    raise spotipy.SpotifyException(400, -1, "Artist name not found in Spotify response.")
                 self.logger.info(f"Spotify artist: {artist_name}")
                 query = f'ytmsearch:top songs by {artist_name}'
                 artist_top_tracks = True
