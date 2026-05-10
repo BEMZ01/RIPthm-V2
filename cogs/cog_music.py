@@ -185,6 +185,8 @@ class Music(commands.Cog):
         self.sponsorblock_message_sent = False
         self.last_sponsorblock_message_time = 0
         self.playing_message_refs_file = os.path.join("temp", "playing_message_refs.json")
+        self.fetching_recommendations = False
+        self.recommendations_fetched = {}  # Track fetched recommendations per guild
 
     async def connect(self):
         await self.bot.wait_until_ready()
@@ -873,6 +875,58 @@ class Music(commands.Cog):
             return
         else:
             player = self.bot.lavalink.player_manager.get(self.playing_message.guild.id)
+            guild_id = self.playing_message.guild.id
+            
+            # Fetch recommendations in the last 10 seconds of the track
+            if (player.current and self.continue_playing and self.last_track is not None and 
+                not self.fetching_recommendations and guild_id not in self.recommendations_fetched):
+                remaining_ms = player.current.duration - player.position
+                # Fetch if there's less than 10 seconds remaining and more than 0
+                if remaining_ms <= 10000 and remaining_ms > 0:
+                    self.fetching_recommendations = True
+                    try:
+                        self.logger.info(f"Fetching recommendations with {remaining_ms}ms remaining in track")
+                        channel = self.bot.get_channel(player.fetch('VoiceChannel'))
+                        members = channel.members if channel else []
+                        
+                        # Check if there are voters in the channel
+                        if hasattr(self.bot, 'vote_bypass_guilds') and guild_id in getattr(self.bot, 'vote_bypass_guilds', []):
+                            voters_in_channel = [True]
+                        else:
+                            voters_in_channel = []
+                            for member in members:
+                                if not member.bot and self.bot.topgg.get_user_vote(member.id):
+                                    voters_in_channel.append(member)
+                        
+                        if len(voters_in_channel) > 0:
+                            # Only fetch if there are voters
+                            candidates = self.get_similar_tracks(self.last_track)
+                            if candidates is None:
+                                self.logger.info("No similar tracks found. Falling back to YouTube search")
+                                tracks = await player.node.get_tracks(f"ytmsearch:{self.last_track.author}")
+                                if tracks and tracks.tracks:
+                                    ytm_tracks = tracks.tracks[:10]
+                                    candidates = [
+                                        {
+                                            "query": f"{track.title} {track.author}",
+                                            "name": track.title,
+                                            "artist": track.author,
+                                            "match": 0.0,
+                                        }
+                                        for track in ytm_tracks
+                                    ]
+                            
+                            if candidates:
+                                ranked_tracks = await self.rank_recommendations_by_views(
+                                    player, candidates, self.last_track.author
+                                )
+                                self.recommendations_fetched[guild_id] = ranked_tracks[:10]
+                                self.logger.info(f"Recommendations pre-fetched for guild {guild_id}")
+                    except Exception as e:
+                        self.logger.error(f"Error pre-fetching recommendations: {e}")
+                    finally:
+                        self.fetching_recommendations = False
+            
             if player.current and self.sponsorBlock:
                 try:
                     channel = self.bot.get_channel(player.channel_id)
@@ -1059,6 +1113,10 @@ class Music(commands.Cog):
         if isinstance(event, lavalink.events.TrackStartEvent):
             self.logger.debug("TrackStartEvent received")
             self.last_track = event.track
+            # Reset pre-fetched recommendations for this track
+            guild_id = event.player.guild_id
+            if guild_id in self.recommendations_fetched:
+                self.recommendations_fetched.pop(guild_id, None)
         elif isinstance(event, lavalink.events.QueueEndEvent):
             self.logger.debug("QueueEndEvent received")
             guild_id = event.player.guild_id
@@ -1115,29 +1173,43 @@ class Music(commands.Cog):
                         except AttributeError:
                             pass
                     return
-                self.logger.info("Getting similar tracks...")
-                candidates = self.get_similar_tracks(self.last_track)
-                if candidates is None:
-                    self.logger.info("No similar tracks found. Falling back to YouTube search")
-                    tracks = await player.node.get_tracks(f"ytmsearch:{self.last_track.author}")
-                    if tracks and tracks.tracks:
-                        ytm_tracks = tracks.tracks[:10]
-                        candidates = [
-                            {
-                                "query": f"{track.title} {track.author}",
-                                "name": track.title,
-                                "artist": track.author,
-                                "match": 0.0,
-                            }
-                            for track in ytm_tracks
-                        ]
+                
+                # Use pre-fetched recommendations if available, otherwise fetch now
+                if guild_id in self.recommendations_fetched:
+                    ranked_tracks = self.recommendations_fetched.pop(guild_id)
+                    self.logger.info(f"Using pre-fetched recommendations for guild {guild_id}")
+                else:
+                    self.logger.info("Getting similar tracks...")
+                    candidates = self.get_similar_tracks(self.last_track)
+                    if candidates is None:
+                        self.logger.info("No similar tracks found. Falling back to YouTube search")
+                        tracks = await player.node.get_tracks(f"ytmsearch:{self.last_track.author}")
+                        if tracks and tracks.tracks:
+                            ytm_tracks = tracks.tracks[:10]
+                            candidates = [
+                                {
+                                    "query": f"{track.title} {track.author}",
+                                    "name": track.title,
+                                    "artist": track.author,
+                                    "match": 0.0,
+                                }
+                                for track in ytm_tracks
+                            ]
+                        else:
+                            self.logger.info("No similar tracks found.")
+                    
+                    if candidates:
+                        ranked_tracks = await self.rank_recommendations_by_views(
+                            player, candidates, self.last_track.author
+                        )
                     else:
-                        self.logger.info("No similar tracks found.")
-
-                if candidates:
-                    ranked_tracks = await self.rank_recommendations_by_views(
-                        player, candidates, self.last_track.author
-                    )
+                        ranked_tracks = []
+                
+                # Reset the pre-fetch flag for the next track
+                if guild_id in self.recommendations_fetched:
+                    self.recommendations_fetched.pop(guild_id, None)
+                
+                if ranked_tracks:
                     for track in ranked_tracks[:10]:
                         player.add(track=track)
                     if not player.is_playing:

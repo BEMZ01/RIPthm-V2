@@ -4,16 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="feat: Update dependency installation command for improved reliability">
-      <change afterPath="$PROJECT_DIR$/utils/persistent_deletes.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/RIPthm2.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/RIPthm2.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="feat: Implement persistent message deletion and enhance message handling in music cog">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cogs/cog_admin.py" beforeDir="false" afterPath="$PROJECT_DIR$/cogs/cog_admin.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/cogs/cog_music.py" beforeDir="false" afterPath="$PROJECT_DIR$/cogs/cog_music.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/start.sh" beforeDir="false" afterPath="$PROJECT_DIR$/start.sh" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -23,7 +16,7 @@
   <component name="CopilotChats">
     <option name="panelChat">
       <chat>
-        <option name="activeSessionId" value="b88969f6-7e5a-48d5-9ed8-b46ad4ea01cb" />
+        <option name="activeSessionId" value="9101f890-7cd6-440e-bbb0-9a6c96c6d1f1" />
         <option name="sessions">
           <session>
             <option name="chatType" value="PANEL" />
@@ -35,11 +28,11 @@
           </session>
           <session>
             <option name="chatType" value="PANEL" />
-            <option name="id" value="b88969f6-7e5a-48d5-9ed8-b46ad4ea01cb" />
+            <option name="id" value="9101f890-7cd6-440e-bbb0-9a6c96c6d1f1" />
             <option name="modeId" value="Agent" />
             <option name="modelType" value="builtin_family" />
             <option name="modelValue" value="auto" />
-            <option name="status" value="Processing" />
+            <option name="status" value="Completed" />
             <option name="targetType" value="LOCAL" />
           </session>
         </option>
@@ -314,7 +307,7 @@
       <workItem from="1774802737059" duration="4343000" />
       <workItem from="1776346409120" duration="1902000" />
       <workItem from="1776502135975" duration="585000" />
-      <workItem from="1778367919793" duration="2604000" />
+      <workItem from="1778367919793" duration="3282000" />
     </task>
     <task id="LOCAL-00001" summary="Added code">
       <created>1665138238842</created>
@@ -534,7 +527,15 @@
       <option name="project" value="LOCAL" />
       <updated>1774806328634</updated>
     </task>
-    <option name="localTasksCounter" value="31" />
+    <task id="LOCAL-00031" summary="feat: Implement persistent message deletion and enhance message handling in music cog">
+      <option name="closed" value="true" />
+      <created>1778370716289</created>
+      <option name="number" value="00031" />
+      <option name="presentableId" value="LOCAL-00031" />
+      <option name="project" value="LOCAL" />
+      <updated>1778370716289</updated>
+    </task>
+    <option name="localTasksCounter" value="32" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -552,7 +553,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Yippe! Added External Playlist Q'ing" />
     <MESSAGE value="Pase date from YYYYMMDD to the nicer to look at DD/MM/YYYY" />
     <MESSAGE value="Done some cool-things" />
     <MESSAGE value="Added Loop feature" />
@@ -577,11 +577,12 @@
     <MESSAGE value="feat: Add profanity filter to music cog for improved status updates" />
     <MESSAGE value="feat: Enhance music cog with improved error handling and interaction responses" />
     <MESSAGE value="feat: Update dependency installation command for improved reliability" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: Update dependency installation command for improved reliability" />
+    <MESSAGE value="feat: Implement persistent message deletion and enhance message handling in music cog" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: Implement persistent message deletion and enhance message handling in music cog" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/RIPthm_V2$scratch.coverage" NAME="scratch Coverage Results" MODIFIED="1670695257354" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$APPLICATION_CONFIG_DIR$/scratches" />
-    <SUITE FILE_PATH="coverage/RIPthm_V2$main.coverage" NAME="main Coverage Results" MODIFIED="1778370224195" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/RIPthm_V2$main.coverage" NAME="main Coverage Results" MODIFIED="1778371125118" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
