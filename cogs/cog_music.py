@@ -35,6 +35,8 @@ SPOTIFY_CLIENT_SECRET = str(os.getenv('SPOTIFY_SECRET'))
 url_rx = re.compile(r'https?://(?:www\.)?.+')
 sp = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLIENT_ID,
                                                                          client_secret=SPOTIFY_CLIENT_SECRET))
+PIRATE_RADIO_URL = "https://open.spotify.com/playlist/098Oij7Ia2mktRbbTkBK0X?si=f457e15700534905"
+ARTIST_TOP_TRACK_LIMIT = 20
 
 class Effect:
     def __init__(self, nightcore: bool = False, vaporwave: bool = False):
@@ -208,7 +210,7 @@ class Music(commands.Cog):
         self.radio_stations = parse_radio_config(os.getenv("RADIOS", ""))
         self.radio_stations["pirate"] = {
             "name": "pirate",
-            "url": "https://open.spotify.com/playlist/098Oij7Ia2mktRbbTkBK0X?si=f457e15700534905",
+            "url": PIRATE_RADIO_URL,
         }
 
     async def connect(self):
@@ -1639,14 +1641,14 @@ class Music(commands.Cog):
                 artist_info = sp.artist(query)
                 artist_name = (artist_info.get("name") or "").strip()
                 if not artist_name:
-                    raise spotipy.SpotifyException(400, -1, "Could not resolve Spotify artist name.")
+                    raise spotipy.SpotifyException(400, -1, "Spotify artist returned without a valid name field.")
                 self.logger.info(f"Spotify artist: {artist_name}")
                 query = f'ytmsearch:top songs by {artist_name}'
                 artist_top_tracks = True
-            except spotipy.SpotifyException as e:
+            except spotipy.SpotifyException:
                 return await self.interaction_send(
                     ctx,
-                    content=f"👎 `Failed to resolve Spotify artist. ({e})`",
+                    content="👎 `Failed to resolve Spotify artist. Please verify the URL is a valid Spotify artist link.`",
                     delete_after=10,
                     ephemeral=True,
                 )
@@ -1668,7 +1670,7 @@ class Music(commands.Cog):
                 player.add(requester=ctx.author.id, track=track)
             self.logger.debug(f"Queue length: {len(player.queue)}")
         elif artist_top_tracks:
-            queued_tracks = results.tracks[:20]
+            queued_tracks = results.tracks[:ARTIST_TOP_TRACK_LIMIT]
             for track in queued_tracks:
                 player.add(requester=ctx.author.id, track=track)
             self.logger.debug(
@@ -2166,8 +2168,6 @@ class Music(commands.Cog):
     @option(name="shuffle", description="Shuffle the playlist", required=False)
     async def pirate(self, ctx: discord.ApplicationContext, shuffle: bool = False):
         selected_station = self.get_radio_station("pirate")
-        if selected_station is None:
-            return await ctx.respond("Pirate radio is not configured.", delete_after=5, ephemeral=True)
         await self.play(ctx, query=selected_station["url"], shuffle=shuffle, source="radio")
         player = self.bot.lavalink.player_manager.get(ctx.guild.id)
         if player.current or player.queue:

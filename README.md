@@ -71,7 +71,7 @@
    ```bash
    ./start.sh /path/to/RipthmV2
     ```
-## Useage
+## Usage
 - Use /play to play a song or add it to the queue.
 - Use /radio <station> to start a configured radio station (for example `/radio jazz`).
 - Use /eternaljukebox to toggle infinite recommendation mode.
