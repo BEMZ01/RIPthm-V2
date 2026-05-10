@@ -1659,7 +1659,8 @@ class Music(commands.Cog):
         """
         try:
             # Determine if the input is a playlist or album
-            if "/album/" in playlist:
+            is_album = "/album/" in playlist
+            if is_album:
                 playlist_info = sp.album(playlist)
                 tracks = playlist_info['tracks']
             elif "/playlist/" in playlist:
@@ -1675,13 +1676,24 @@ class Music(commands.Cog):
             async def fetch_page(offset):
                 async with semaphore:
                     try:
-                        return sp.playlist_items(playlist, offset=offset, limit=100)['items']
+                        # Use album_tracks for albums, playlist_items for playlists
+                        if is_album:
+                            # sp.album_tracks default limit is 50, which works well
+                            result = sp.album_tracks(playlist, limit=50, offset=offset)
+                            # Return tracks with consistent structure (album tracks are direct, not wrapped)
+                            return result['items'] if result else []
+                        else:
+                            # sp.playlist_items default limit is 50 as well
+                            result = sp.playlist_items(playlist, limit=50, offset=offset)
+                            # Playlist tracks come wrapped in a "track" object, keep the full structure
+                            return result['items'] if result else []
                     except spotipy.SpotifyException as e:
                         self.logger.error(f"Error fetching page at offset {offset}: {e}")
                         return []
 
-            # Create tasks for all pages
-            tasks = [fetch_page(offset) for offset in range(0, total_tracks, 100)]
+            # Create tasks for all pages - use batch size of 50 for both
+            batch_size = 50
+            tasks = [fetch_page(offset) for offset in range(0, total_tracks, batch_size)]
             all_tracks = await asyncio.gather(*tasks)
             # Flatten the list of tracks
             all_tracks = [track for page in all_tracks for track in page]
