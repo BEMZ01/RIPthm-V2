@@ -28,6 +28,9 @@
 - **Audio Filters**: Apply filters like nightcore, vaporwave, karaoke, and lowpass.
 - **Lyrics Integration**: Fetch song lyrics using the Genius API.
 - **SponsorBlock (Ad block) Integration**: Automatically skip non-music (sponsorships, etc.) segments in YouTube videos.
+- **The Eternal Jukebox Mode**: Toggle infinite recommendation playback mode with `/eternaljukebox`.
+- **Eternal Jukebox Integration**: When enabled, the player resolves a Spotify match and exposes an Eternal Jukebox loop link for the current track.
+- **Configurable Radio Stations**: Configure stream/preset stations with `RADIOS` and start them with `/radio <station>`.
 - **Admin Commands**: Manage bot cogs, restart, update, and view logs.
 - **Customizable**: Easily configure the bot using environment variables.
 
@@ -58,15 +61,24 @@
    python -m pip install -r requirements.txt
     ```
 4. Configure the `.env` file:
-   - Copy `.env.example` to `.env`.
-   - Fill in the required values (e.g., `DISCORD_TOKEN`, `LAVA_ADDR`, etc.).
+    - Copy `.env.example` to `.env`.
+    - Fill in the required values (e.g., `DISCORD_TOKEN`, `LAVA_ADDR`, etc.).
+    - Optional radio presets:
+     - `RADIOS=low-fi_hip-hop;https://www.youtube.com/watch?v=jfKfPfyJRdk,jazz;https://www.youtube.com/watch?v=A8jDx9TLMQc,classical;https://www.youtube.com/watch?v=jXAEIWcGXwE`
+     - Start a station with `/radio <name>` (for example `/radio jazz`).
+     - `pirate` is available as a built-in radio station.
+   - Optional Eternal Jukebox host override:
+     - `ETERNAL_JUKEBOX_URL=https://eternalbox.floriegl.tech/jukebox_go.html`
 
 5. Start the bot:
    ```bash
    ./start.sh /path/to/RipthmV2
     ```
-## Useage
+## Usage
 - Use /play to play a song or add it to the queue.
+- Use /radio <station> to start a configured radio station (for example `/radio jazz`).
+- Use /eternaljukebox to toggle infinite recommendation mode.
+- When Eternal Jukebox mode is enabled, the now-playing message includes a direct loop link when a Spotify match is found.
 - Use /queue to view the current queue.
 - Use /pause, /resume, /skip, and /stop to control playback.
 - Use /lyrics to fetch the lyrics of the current song.
