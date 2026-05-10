@@ -472,6 +472,25 @@ class Music(commands.Cog):
             self.logger.warning("Interaction expired before a response could be sent.")
             return None
 
+    async def safe_defer(self, interaction: discord.Interaction, ephemeral: bool = False) -> bool:
+        """Safely defer an interaction response. Returns True if defer succeeded."""
+        try:
+            resp = getattr(interaction, 'response', None)
+            if resp is None:
+                return False
+            await resp.defer(ephemeral=ephemeral)
+            return True
+        except discord.errors.NotFound:
+            # Interaction no longer exists / has expired
+            self.logger.debug("Interaction defer failed: Unknown or expired interaction.")
+            return False
+        except discord.HTTPException as e:
+            self.logger.warning(f"Interaction defer failed: {e}")
+            return False
+        except Exception:
+            self.logger.exception("Unexpected error while deferring interaction")
+            return False
+
     async def send_with_delete_tracking(self, destination, *, delete_after: int = None, **kwargs):
         """Send a channel message and persist delete_after for restart-safe cleanup."""
         scheduler = getattr(self.bot, "schedule_persistent_delete", None)
@@ -731,7 +750,7 @@ class Music(commands.Cog):
     @tasks.loop(seconds=5)
     async def update_playing_message(self, ctx=None):
         async def play_callback(interaction):
-            await interaction.response.defer()
+            await self.safe_defer(interaction)
             player = self.bot.lavalink.player_manager.get(interaction.guild.id)
             if player.paused:
                 await player.set_pause(False)
@@ -742,13 +761,13 @@ class Music(commands.Cog):
             await self.update_playing_message()
 
         async def skip_callback(interaction):
-            await interaction.response.defer()
+            await self.safe_defer(interaction)
             player = self.bot.lavalink.player_manager.get(interaction.guild.id)
             await player.skip()
             await self.update_playing_message()
 
         async def stop_callback(interaction):
-            await interaction.response.defer(ephemeral=True)
+            await self.safe_defer(interaction, ephemeral=True)
             player = self.bot.lavalink.player_manager.get(interaction.guild_id)
             if not self.bot.get_channel(player.channel_id):
                 return await self.send_with_delete_tracking(interaction.channel, content='Not connected.', delete_after=10)
@@ -789,13 +808,13 @@ class Music(commands.Cog):
             return None
 
         async def shuffle_callback(interaction):
-            await interaction.response.defer()
+            await self.safe_defer(interaction)
             player = self.bot.lavalink.player_manager.get(interaction.guild.id)
             player.shuffle = not player.shuffle
             await self.update_playing_message()
 
         async def loop_callback(interaction):
-            await interaction.response.defer()
+            await self.safe_defer(interaction)
             player = self.bot.lavalink.player_manager.get(interaction.guild.id)
             if player.loop == player.LOOP_NONE:
                 player.loop = player.LOOP_QUEUE
@@ -806,12 +825,12 @@ class Music(commands.Cog):
             await self.update_playing_message()
 
         async def sponsorBlock_callback(interaction):
-            await interaction.response.defer()
+            await self.safe_defer(interaction)
             self.sponsorBlock = not self.sponsorBlock
             await self.update_playing_message()
 
         async def eternal_jukebox_callback(interaction):
-            await interaction.response.defer()
+            await self.safe_defer(interaction)
             self.eternal_jukebox = not self.eternal_jukebox
             player = self.bot.lavalink.player_manager.get(interaction.guild.id)
             if self.eternal_jukebox:
@@ -821,7 +840,7 @@ class Music(commands.Cog):
             await self.update_playing_message()
 
         async def recommendations_callback(interaction):
-            await interaction.response.defer(ephemeral=True)
+            await self.safe_defer(interaction, ephemeral=True)
             player = self.bot.lavalink.player_manager.get(interaction.guild.id)
             if player.is_playing:
                 self.continue_playing = not self.continue_playing
@@ -2332,7 +2351,7 @@ class Music(commands.Cog):
         
         # Create select menu for radio stations
         async def radio_select_callback(interaction: discord.Interaction):
-            await interaction.response.defer(ephemeral=True)
+            await self.safe_defer(interaction, ephemeral=True)
             selected_station_key = interaction.data['values'][0]
             selected_station = self.get_radio_station(selected_station_key)
             
@@ -2497,9 +2516,8 @@ class Music(commands.Cog):
             default="youtube_music")
     async def search(self, ctx: discord.ApplicationContext, query: str, service: str = "youtube_music"):
         async def dropdown_callback(interaction: discord.Interaction):
-            try:
-                await interaction.response.defer(ephemeral=True)
-            except discord.errors.NotFound:
+            # Safely defer the interaction; if it fails the interaction is likely expired.
+            if not await self.safe_defer(interaction, ephemeral=True):
                 self.logger.warning("Dropdown interaction expired before defer.")
                 return
 
