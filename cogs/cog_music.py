@@ -655,9 +655,9 @@ class Music(commands.Cog):
                     delete_after=10,
                 )
             self.stop_import = True
-            player.store("radio_name", None)
             self.bot.lavalink.player_manager.get(interaction.guild_id).queue.clear()
             await self.bot.lavalink.player_manager.get(interaction.guild_id).stop()
+            player.store("radio_name", None)
             for vc in self.bot.voice_clients:
                 if vc.guild == interaction.guild:
                     await vc.disconnect()
@@ -948,7 +948,7 @@ class Music(commands.Cog):
                                     voters_in_channel.append(member)
                         
                         if len(voters_in_channel) > 0 or self.eternal_jukebox:
-                            # Only fetch if there are voters, unless eternal jukebox is enabled
+                            # Fetch recommendations if there are voters, or eternal jukebox is enabled
                             candidates = self.get_similar_tracks(self.last_track)
                             if candidates is None:
                                 self.logger.info("No similar tracks found. Falling back to YouTube search")
