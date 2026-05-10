@@ -6,6 +6,7 @@ import logging
 import random
 import re
 import traceback
+import urllib.parse
 from pprint import pprint
 
 import aiohttp
@@ -173,6 +174,12 @@ def parse_radio_config(raw_radios: str):
         stations[name.lower()] = {"name": name, "url": url}
     return stations
 
+
+def build_eternal_jukebox_url(spotify_track_id: str):
+    base_url = os.getenv("ETERNAL_JUKEBOX_URL", "https://eternalbox.floriegl.tech/jukebox_go.html")
+    separator = "&" if "?" in base_url else "?"
+    return f"{base_url}{separator}id={urllib.parse.quote(spotify_track_id)}"
+
 class Music(commands.Cog):
     def __init__(self, bot, logger):
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -253,6 +260,38 @@ class Music(commands.Cog):
             return None
         key = station.strip().lower()
         return self.radio_stations.get(key)
+
+    def resolve_spotify_track_id(self, title: str, author: str):
+        if not title:
+            return None
+        query = f"track:{title}"
+        if author:
+            query += f" artist:{author}"
+        try:
+            result = sp.search(q=query, type="track", limit=1)
+        except spotipy.SpotifyException:
+            return None
+        tracks = (result or {}).get("tracks", {}).get("items", [])
+        if not tracks:
+            return None
+        return tracks[0].get("id")
+
+    async def refresh_eternal_jukebox_link(self, player):
+        if player is None or player.current is None:
+            if player is not None:
+                player.store("eternal_jukebox_url", None)
+            return None
+        spotify_track_id = await asyncio.to_thread(
+            self.resolve_spotify_track_id,
+            player.current.title,
+            player.current.author
+        )
+        if not spotify_track_id:
+            player.store("eternal_jukebox_url", None)
+            return None
+        url = build_eternal_jukebox_url(spotify_track_id)
+        player.store("eternal_jukebox_url", url)
+        return url
 
     async def get_skip_segments(self, uri):
         if self.last_song_uri == uri:
@@ -658,6 +697,7 @@ class Music(commands.Cog):
             self.bot.lavalink.player_manager.get(interaction.guild_id).queue.clear()
             await self.bot.lavalink.player_manager.get(interaction.guild_id).stop()
             player.store("radio_name", None)
+            player.store("eternal_jukebox_url", None)
             for vc in self.bot.voice_clients:
                 if vc.guild == interaction.guild:
                     await vc.disconnect()
@@ -695,6 +735,11 @@ class Music(commands.Cog):
         async def eternal_jukebox_callback(interaction):
             await interaction.response.defer()
             self.eternal_jukebox = not self.eternal_jukebox
+            player = self.bot.lavalink.player_manager.get(interaction.guild.id)
+            if self.eternal_jukebox:
+                await self.refresh_eternal_jukebox_link(player)
+            else:
+                player.store("eternal_jukebox_url", None)
             await self.update_playing_message()
 
         async def recommendations_callback(interaction):
@@ -845,6 +890,13 @@ class Music(commands.Cog):
                                                            f'%)',
                                     inline=False)
                     embed.add_field(name='Progress', value=progress_bar(player), inline=False)
+                eternal_jukebox_url = player.fetch("eternal_jukebox_url")
+                if self.eternal_jukebox and eternal_jukebox_url:
+                    embed.add_field(
+                        name="Eternal Jukebox",
+                        value=f"[Open loop mode]({eternal_jukebox_url})",
+                        inline=False
+                    )
                 buttons = []
                 if self.playing_message:
                     player = self.bot.lavalink.player_manager.get(self.playing_message.guild.id)
@@ -1162,6 +1214,10 @@ class Music(commands.Cog):
         if isinstance(event, lavalink.events.TrackStartEvent):
             self.logger.debug("TrackStartEvent received")
             self.last_track = event.track
+            if self.eternal_jukebox:
+                await self.refresh_eternal_jukebox_link(event.player)
+            else:
+                event.player.store("eternal_jukebox_url", None)
             # Reset pre-fetched recommendations for this track
             guild_id = event.player.guild_id
             if guild_id in self.recommendations_fetched:
@@ -1213,6 +1269,7 @@ class Music(commands.Cog):
                     finally:
                         self.stop_import = True
                         player.store("radio_name", None)
+                        player.store("eternal_jukebox_url", None)
                         player.queue.clear()
                         await player.stop()
                         await guild.voice_client.disconnect(force=True)
@@ -2069,9 +2126,18 @@ class Music(commands.Cog):
     @commands.slash_command(name="eternaljukebox", description="Toggle The Eternal Jukebox mode.")
     async def eternaljukebox(self, ctx: discord.ApplicationContext):
         self.eternal_jukebox = not self.eternal_jukebox
+        player = self.bot.lavalink.player_manager.get(ctx.guild.id)
         if self.eternal_jukebox:
+            eternal_jukebox_url = await self.refresh_eternal_jukebox_link(player)
+            if eternal_jukebox_url:
+                return await ctx.respond(
+                    f"The Eternal Jukebox mode has been enabled!\n{eternal_jukebox_url}",
+                    delete_after=15,
+                    ephemeral=True
+                )
             await ctx.respond("The Eternal Jukebox mode has been enabled!", delete_after=5, ephemeral=True)
         else:
+            player.store("eternal_jukebox_url", None)
             await ctx.respond("The Eternal Jukebox mode has been disabled!", delete_after=5, ephemeral=True)
 
     @commands.slash_command(name="nowplaying", description="Show the current song")
