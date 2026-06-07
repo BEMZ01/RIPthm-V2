@@ -4,8 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="feat: Implement radio queue state management for improved user experience">
-      <change beforePath="$PROJECT_DIR$/cogs/cog_music.py" beforeDir="false" afterPath="$PROJECT_DIR$/cogs/cog_music.py" afterDir="false" />
+    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="feat: Implement safe interaction deferral to enhance error handling in music cog">
+      <change afterPath="$PROJECT_DIR$/cogs/cog_monitor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.env.example" beforeDir="false" afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -15,7 +18,7 @@
   <component name="CopilotChats">
     <option name="panelChat">
       <chat>
-        <option name="activeSessionId" value="9dcf30c2-5d98-46a0-a950-85be5efdfaa9" />
+        <option name="activeSessionId" value="9cb2d684-78f2-4b16-a4c1-4d2e798d3804" />
         <option name="sessions">
           <session>
             <option name="chatType" value="PANEL" />
@@ -43,11 +46,10 @@
           </session>
           <session>
             <option name="chatType" value="PANEL" />
-            <option name="id" value="9dcf30c2-5d98-46a0-a950-85be5efdfaa9" />
+            <option name="id" value="9cb2d684-78f2-4b16-a4c1-4d2e798d3804" />
             <option name="modeId" value="Agent" />
             <option name="modelType" value="builtin_family" />
             <option name="modelValue" value="auto" />
-            <option name="status" value="Stopped" />
             <option name="targetType" value="LOCAL" />
           </session>
         </option>
@@ -216,8 +218,8 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-PY-261.23567.174" />
-        <option value="bundled-python-sdk-024ed6589d45-c2ffad84badb-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.23567.174" />
+        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-PY-261.24374.152" />
+        <option value="bundled-python-sdk-c59985aa861c-c2ffad84badb-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.24374.152" />
       </set>
     </attachedChunks>
   </component>
@@ -324,7 +326,9 @@
       <workItem from="1776502135975" duration="585000" />
       <workItem from="1778367919793" duration="3865000" />
       <workItem from="1778371914084" duration="873000" />
-      <workItem from="1778419657799" duration="4380000" />
+      <workItem from="1778419657799" duration="4465000" />
+      <workItem from="1778536505113" duration="9000" />
+      <workItem from="1780839987692" duration="1427000" />
     </task>
     <task id="LOCAL-00001" summary="Added code">
       <created>1665138238842</created>
@@ -576,7 +580,15 @@
       <option name="project" value="LOCAL" />
       <updated>1778423809206</updated>
     </task>
-    <option name="localTasksCounter" value="35" />
+    <task id="LOCAL-00035" summary="feat: Implement safe interaction deferral to enhance error handling in music cog">
+      <option name="closed" value="true" />
+      <created>1778424383056</created>
+      <option name="number" value="00035" />
+      <option name="presentableId" value="LOCAL-00035" />
+      <option name="project" value="LOCAL" />
+      <updated>1778424383056</updated>
+    </task>
+    <option name="localTasksCounter" value="36" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -594,7 +606,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="+ requirements.txt" />
     <MESSAGE value="I love OOP :(" />
     <MESSAGE value="Fixed some stuff here and there" />
     <MESSAGE value="RIPTHM v3 Starts here!" />
@@ -619,7 +630,8 @@
     <MESSAGE value="feat: Implement track recommendation fetching and caching in music cog" />
     <MESSAGE value="feat: Refactor playlist and album track fetching logic for consistency and efficiency" />
     <MESSAGE value="feat: Implement radio queue state management for improved user experience" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: Implement radio queue state management for improved user experience" />
+    <MESSAGE value="feat: Implement safe interaction deferral to enhance error handling in music cog" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: Implement safe interaction deferral to enhance error handling in music cog" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/RIPthm_V2$scratch.coverage" NAME="scratch Coverage Results" MODIFIED="1670695257354" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$APPLICATION_CONFIG_DIR$/scratches" />

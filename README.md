@@ -63,6 +63,10 @@
 4. Configure the `.env` file:
     - Copy `.env.example` to `.env`.
     - Fill in the required values (e.g., `DISCORD_TOKEN`, `LAVA_ADDR`, etc.).
+    - Optional uptime reporting:
+      - `UPTIME_URL=https://status.example.com/api/push/<token>`
+      - `UPTIME_INTERVAL=60`
+      - The uptime push now includes the number of servers the bot is installed in and the number of servers currently playing music.
     - Optional radio presets:
      - `RADIOS=low-fi_hip-hop;https://www.youtube.com/watch?v=jfKfPfyJRdk,jazz;https://www.youtube.com/watch?v=A8jDx9TLMQc,classical;https://www.youtube.com/watch?v=jXAEIWcGXwE`
      - Start a station with `/radio <name>` (for example `/radio jazz`).
