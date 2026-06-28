@@ -1,0 +1,24 @@
+[Unit]
+Description=RIPthm Bot Service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+# Change these to the user/group that owns the repository.
+User=<YOUR_USERNAME>
+Group=<YOUR_GROUP>
+
+# The directory where your repository/start.sh is located
+WorkingDirectory=/path/to/your/repo
+
+# The command to execute. 
+# Remember: start.sh expects the target bot directory as its first argument.
+ExecStart=/bin/bash /path/to/your/repo/start.sh /path/to/target/bot/folder
+
+Restart=on-failure
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
