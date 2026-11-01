@@ -5,6 +5,85 @@ import random
 from PIL import Image
 
 
+def crop_framed_square_art(image_data):
+    """Return a center-cropped square for images with matching flat edge bars."""
+    image = Image.open(io.BytesIO(image_data)).convert("RGB")
+    width, height = image.size
+    if width == height:
+        return None
+
+    sample_count = 5
+    horizontal_start = int(width * 0.2)
+    horizontal_end = max(horizontal_start + 1, int(width * 0.8))
+    vertical_start = int(height * 0.2)
+    vertical_end = max(vertical_start + 1, int(height * 0.8))
+    edge_width = max(1, int(width * 0.05))
+    edge_height = max(1, int(height * 0.05))
+
+    top = [
+        image.getpixel((random.randrange(horizontal_start, horizontal_end), random.randrange(edge_height)))
+        for _ in range(sample_count)
+    ]
+    bottom = [
+        image.getpixel((random.randrange(horizontal_start, horizontal_end),
+                        height - edge_height + random.randrange(edge_height)))
+        for _ in range(sample_count)
+    ]
+    left = [
+        image.getpixel((random.randrange(edge_width), random.randrange(vertical_start, vertical_end)))
+        for _ in range(sample_count)
+    ]
+    right = [
+        image.getpixel((width - edge_width + random.randrange(edge_width),
+                        random.randrange(vertical_start, vertical_end)))
+        for _ in range(sample_count)
+    ]
+
+    if not (
+        len(set(top)) == len(set(bottom)) == len(set(left)) == len(set(right)) == 1
+        and top[0] == bottom[0]
+        and left[0] == right[0]
+    ):
+        return None
+
+    sample_width = max(1, int(width * 0.6))
+    sample_stride = max(1, sample_width // 200)
+    sample_x_start = (width - sample_width) // 2
+
+    def is_black_bar_row(y):
+        samples = [
+            image.getpixel((x, y))
+            for x in range(sample_x_start, sample_x_start + sample_width, sample_stride)
+        ]
+        return sum(max(pixel) <= 24 for pixel in samples) >= len(samples) * 0.98
+
+    top_edge = 0
+    while top_edge < height and is_black_bar_row(top_edge):
+        top_edge += 1
+    bottom_edge = height
+    while bottom_edge > top_edge and is_black_bar_row(bottom_edge - 1):
+        bottom_edge -= 1
+
+    content_height = bottom_edge - top_edge
+    side = min(width, content_height)
+    left_edge = (width - side) // 2
+    top_edge += (content_height - side) // 2
+    cropped = image.crop((left_edge, top_edge, left_edge + side, top_edge + side))
+    output = io.BytesIO()
+    cropped.save(output, format="PNG")
+    return output.getvalue()
+
+
+async def get_framed_square_art(image_url):
+    """Download artwork and return its center-cropped PNG when flat framing is detected."""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(image_url) as response:
+            if response.status != 200:
+                return None
+            image_data = await response.read()
+    return crop_framed_square_art(image_data)
+
+
 async def Generate_color(image_url, random_color=False):
     """Generate a similar color to the album cover of the song or a random color from the top 50%.
     :param image_url: The url of the album cover.

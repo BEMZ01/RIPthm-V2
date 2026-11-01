@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import hashlib
 import io
 import json
 import logging
@@ -27,7 +28,7 @@ import os
 import time
 import sponsorblock as sb
 from utils.topgg_api import TopGGAPI
-from utils.generic import Generate_color, paginator, limit, progress_bar
+from utils.generic import Generate_color, get_framed_square_art, paginator, limit, progress_bar
 from utils.profanity import ProfanityFilter
 
 load_dotenv()
@@ -191,6 +192,11 @@ class Music(commands.Cog):
         self.bot = bot
         self.profanity_filter = ProfanityFilter()
         self.playing_message = None
+        self._display_art_url = None
+        self._display_art_crop = None
+        self._display_art_color = None
+        self._display_track_key = None
+        self._display_message_id = None
         self.update_playing_message.start()
         self.test_vid.start()
         self.check_call.start()
@@ -748,7 +754,7 @@ class Music(commands.Cog):
                 self.disconnect_timer = False
 
     @tasks.loop(seconds=5)
-    async def update_playing_message(self, ctx=None):
+    async def update_playing_message(self, ctx=None, force=False):
         async def play_callback(interaction):
             await self.safe_defer(interaction)
             player = self.bot.lavalink.player_manager.get(interaction.guild.id)
@@ -758,13 +764,13 @@ class Music(commands.Cog):
             else:
                 await player.set_pause(True)
                 await self.set_bot_pause_mute(interaction.guild, True)
-            await self.update_playing_message()
+            await self.update_playing_message(force=True)
 
         async def skip_callback(interaction):
             await self.safe_defer(interaction)
             player = self.bot.lavalink.player_manager.get(interaction.guild.id)
             await player.skip()
-            await self.update_playing_message()
+            await self.update_playing_message(force=True)
 
         async def stop_callback(interaction):
             await self.safe_defer(interaction, ephemeral=True)
@@ -787,7 +793,7 @@ class Music(commands.Cog):
                     player.store("radio_name", None)
                     player.store("eternal_jukebox_url", None)
                     await self.send_with_delete_tracking(interaction.channel, content='*⃣ | Exited radio mode. Queue restored.', delete_after=10)
-                    await self.update_playing_message()
+                    await self.update_playing_message(force=True)
                     return None
             
             self.stop_import = True
@@ -811,7 +817,7 @@ class Music(commands.Cog):
             await self.safe_defer(interaction)
             player = self.bot.lavalink.player_manager.get(interaction.guild.id)
             player.shuffle = not player.shuffle
-            await self.update_playing_message()
+            await self.update_playing_message(force=True)
 
         async def loop_callback(interaction):
             await self.safe_defer(interaction)
@@ -822,12 +828,12 @@ class Music(commands.Cog):
                 player.loop = player.LOOP_SINGLE
             elif player.loop == player.LOOP_SINGLE:
                 player.loop = player.LOOP_NONE
-            await self.update_playing_message()
+            await self.update_playing_message(force=True)
 
         async def sponsorBlock_callback(interaction):
             await self.safe_defer(interaction)
             self.sponsorBlock = not self.sponsorBlock
-            await self.update_playing_message()
+            await self.update_playing_message(force=True)
 
         async def eternal_jukebox_callback(interaction):
             await self.safe_defer(interaction)
@@ -837,7 +843,7 @@ class Music(commands.Cog):
                 await self.refresh_eternal_jukebox_link(player)
             else:
                 player.store("eternal_jukebox_url", None)
-            await self.update_playing_message()
+            await self.update_playing_message(force=True)
 
         async def recommendations_callback(interaction):
             await self.safe_defer(interaction, ephemeral=True)
@@ -863,8 +869,23 @@ class Music(commands.Cog):
                     delete_after=10,
                 )
 
+        track_key = None
         try:
             player = self.bot.lavalink.player_manager.get(self.playing_message.guild.id)
+            current_track = player.current
+            track_key = (
+                self.playing_message.guild.id,
+                current_track.identifier,
+                current_track.uri,
+            ) if current_track else None
+            if (
+                track_key is not None
+                and track_key == self._display_track_key
+                and self.playing_message.id == self._display_message_id
+                and not force
+                and ctx is None
+            ):
+                return None
             channel = self.bot.get_channel(player.fetch('VoiceChannel'))
             client = channel.guild.voice_client
             if player.fetch('VoiceStatus') == "-1":  # We have been kicked from the channel
@@ -885,36 +906,38 @@ class Music(commands.Cog):
                 self.playing_message = None
                 await player.stop()
                 player.store("VoiceStatus", "0")
-            title = re.sub(r'\([^)]*\)', '', player.current.title)
-            title = re.sub(r'\[[^)]*\]', '', title)
-            title = title.lower()
-            title_blacklist = ["lyrics", "lyric", "official", "video", "audio", "music", "full", "hd", "hq", "remix",
-                               "ost", "theme", "original", "version", " - Topic"]
-            for word in title_blacklist:
-                title = title.replace(word, "")
-            title = title.strip()
-            if " - " in title:
-                title = title.split(" - ")
-                author = title[0]
-                title = title[1]
-            elif "by" in title:
-                title = title.split("by")
-                author = title[1]
-                title = title[0]
-            elif " | " in title:
-                title = title.split(" | ")
-                author = title[0]
-                title = title[1]
-            else:
-                author = None
-            if player.current.author.contains("VEVO"):
-                author = player.current.author.replace("VEVO", "")
-            self.logger.debug(f"Raw: {player.current.title}\nTitle: {title}\nAuthor: {author}")
-            song = self.genius.search_song(title, author).to_dict()
-            if song is None:
-                self.CP = (None, player.current.title)
-            else:
-                self.CP = (song, player.current.title)
+            if current_track and track_key != self._display_track_key:
+                self.CP = None
+                title = re.sub(r'\([^)]*\)', '', current_track.title)
+                title = re.sub(r'\[[^)]*\]', '', title)
+                title = title.lower()
+                title_blacklist = ["lyrics", "lyric", "official", "video", "audio", "music", "full", "hd", "hq",
+                                   "remix", "ost", "theme", "original", "version", " - Topic"]
+                for word in title_blacklist:
+                    title = title.replace(word, "")
+                title = title.strip()
+                if " - " in title:
+                    title = title.split(" - ")
+                    author = title[0]
+                    title = title[1]
+                elif "by" in title:
+                    title = title.split("by")
+                    author = title[1]
+                    title = title[0]
+                elif " | " in title:
+                    title = title.split(" | ")
+                    author = title[0]
+                    title = title[1]
+                else:
+                    author = None
+                if current_track.author.contains("VEVO"):
+                    author = current_track.author.replace("VEVO", "")
+                self.logger.debug(f"Raw: {current_track.title}\nTitle: {title}\nAuthor: {author}")
+                song = self.genius.search_song(title, author).to_dict()
+                if song is None:
+                    self.CP = (None, current_track.title)
+                else:
+                    self.CP = (song, current_track.title)
         except AttributeError:
             pass
         if self.playing_message is None:
@@ -945,10 +968,15 @@ class Music(commands.Cog):
                 else:
                     shuffle = ""
                 if self.CP is not None:
-                    color = await Generate_color(self.CP[0]['song_art_image_url'], random_color=True)
+                    art_url = self.CP[0]['song_art_image_url']
                 else:
-                    color = await Generate_color(
-                        f"https://img.youtube.com/vi/{player.current.identifier}/hqdefault.jpg", random_color=True)
+                    art_url = f"https://img.youtube.com/vi/{player.current.identifier}/hqdefault.jpg"
+                if art_url != self._display_art_url:
+                    self._display_art_crop = await get_framed_square_art(art_url)
+                    self._display_art_color = await Generate_color(art_url, random_color=True)
+                    self._display_art_url = art_url
+                color = self._display_art_color
+                art_filename = f"playing-art-{hashlib.sha256(art_url.encode()).hexdigest()[:12]}.png"
                 if player.paused:
                     embed_title = "Paused " + loop + " " + shuffle
                 else:
@@ -966,15 +994,10 @@ class Music(commands.Cog):
                 except AttributeError:
                     embed_description = '[UNABLE TO GET TITLE]'
                 embed = discord.Embed(title=embed_title.strip(), description=embed_description, color=color)
-                if self.CP is not None:
-                    embed.set_thumbnail(url=self.CP[0]['song_art_image_url'])
+                if self._display_art_crop is not None:
+                    embed.set_thumbnail(url=f"attachment://{art_filename}")
                 else:
-                    if player.current is None:
-                        return None
-                    else:
-                        embed.set_thumbnail(url=f"https://img.youtube.com/vi/"
-                                                f"{player.current.identifier if player is not None else 'ABCDEF'}"
-                                                f"/hqdefault.jpg")
+                    embed.set_thumbnail(url=art_url)
                 if player.current is None:
                     return None
                 elif current_radio:
@@ -1039,13 +1062,47 @@ class Music(commands.Cog):
                     button[0].callback = locals()[f"{button[1]}_callback"]
                     view.add_item(button[0])
                 try:
-                    await self.playing_message.edit("", embed=embed, view=view)
+                    current_art_attachments = [
+                        attachment for attachment in self.playing_message.attachments
+                        if attachment.filename.startswith("playing-art-")
+                    ]
+                    matching_art_attachment = any(
+                        attachment.filename == art_filename for attachment in current_art_attachments
+                    )
+                    edit_options = {}
+                    if self._display_art_crop is not None and not matching_art_attachment:
+                        edit_options["files"] = [
+                            discord.File(io.BytesIO(self._display_art_crop), filename=art_filename)
+                        ]
+                        edit_options["attachments"] = [
+                            attachment for attachment in self.playing_message.attachments
+                            if not attachment.filename.startswith("playing-art-")
+                        ]
+                    elif self._display_art_crop is None and current_art_attachments:
+                        edit_options["attachments"] = [
+                            attachment for attachment in self.playing_message.attachments
+                            if not attachment.filename.startswith("playing-art-")
+                        ]
+                    self.playing_message = await self.playing_message.edit(
+                        "", embed=embed, view=view, **edit_options
+                    )
+                    self._display_track_key = track_key
+                    self._display_message_id = self.playing_message.id
                     return None
                 except discord.errors.NotFound:
                     try:
                         self.logger.warning("Message not found, creating new one")
                         if self.playing_message is not None:
-                            self.playing_message = await self.playing_message.channel.send("", embed=embed, view=view)
+                            send_options = {}
+                            if self._display_art_crop is not None:
+                                send_options["file"] = discord.File(
+                                    io.BytesIO(self._display_art_crop), filename=art_filename
+                                )
+                            self.playing_message = await self.playing_message.channel.send(
+                                "", embed=embed, view=view, **send_options
+                            )
+                            self._display_track_key = track_key
+                            self._display_message_id = self.playing_message.id
                             self.store_playing_message_ref(self.playing_message.guild.id, self.playing_message)
                             return None
                         return None
@@ -1726,6 +1783,29 @@ class Music(commands.Cog):
             start_time = time.time()
             bar_length = 12
             batch_size = max(1, len(tracks) // bar_length)
+
+            async def find_playlist_track(search_query):
+                for attempt in range(1, 4):
+                    for search_prefix in ("ytmsearch:", "ytsearch:"):
+                        query_to_try = f"{search_prefix}{search_query}"
+                        try:
+                            result = await player.node.get_tracks(query_to_try)
+                        except Exception as e:
+                            self.logger.warning(
+                                f"Playlist search attempt {attempt}/3 failed for "
+                                f"'{query_to_try}': {e}"
+                            )
+                            continue
+                        if result and result.tracks:
+                            return result.tracks[0]
+                        self.logger.info(
+                            f"No tracks found on attempt {attempt}/3 for query: {query_to_try}"
+                        )
+                    if attempt < 3:
+                        await asyncio.sleep(1)
+                self.logger.warning(f"Skipping playlist track after 3 attempts: {search_query}")
+                return None
+
             for i in range(0, len(tracks), batch_size):
                 if self.stop_import:
                     await self.interaction_send(ctx, content="👍 `Stopped importing Spotify playlist.`", ephemeral=True,
@@ -1734,30 +1814,18 @@ class Music(commands.Cog):
                     self.stop_import = False
                     return None
                 batch = tracks[i:i + batch_size]
-                tasks = []
+                track_searches = []
                 for track in batch:
                     if "/album/" in query:
-                        squery = f'ytmsearch:{track["name"]} {track["artists"][0]["name"]}'
+                        search_query = f'{track["name"]} {track["artists"][0]["name"]}'
                     elif "/playlist/" in query:
-                        squery = f'ytmsearch:{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
-                    tasks.append(player.node.get_tracks(squery))
-                try:
-                    results = await asyncio.gather(*tasks)
-                except Exception as e:
-                    self.logger.error(f"Error fetching tracks: {e}")
-                    continue
-                for result in results:
-                    if not result or not result.tracks:
-                        self.logger.error(f"No tracks found for query: {squery}")
-                        # Backup search on YouTube
-                        squery_backup = squery.replace('ytmsearch:', 'ytsearch:')
-                        self.logger.info(f"Attempting backup search on YouTube for query: {squery_backup}")
-                        result = await player.node.get_tracks(squery_backup)
-                        if not result or not result.tracks:
-                            self.logger.error(f"No tracks found for backup query: {squery_backup}")
-                            continue
-                    track = result.tracks[0]
-                    player.add(requester=ctx.author.id, track=track)
+                        search_query = f'{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
+                    track_searches.append((search_query, find_playlist_track(search_query)))
+                results = await asyncio.gather(*(search for _, search in track_searches))
+                for (search_query, _), found_track in zip(track_searches, results):
+                    if found_track is None:
+                        continue
+                    player.add(requester=ctx.author.id, track=found_track)
                 if not player.is_playing:
                     await player.play()
                     if shuffle:

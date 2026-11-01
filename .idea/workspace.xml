@@ -7,12 +7,10 @@
     <option name="selectedModelId" value="auto" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="feat: Enhance error handling in music cog for Spotify playlist imports">
-      <change beforePath="$PROJECT_DIR$/.github/workflows/pythonapp.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/pythonapp.yml" afterDir="false" />
+    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="feat: Add Docker support with Dockerfile and docker-compose.yml">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cogs/cog_music.py" beforeDir="false" afterPath="$PROJECT_DIR$/cogs/cog_music.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utils/generic.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/generic.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -597,7 +595,15 @@
       <option name="project" value="LOCAL" />
       <updated>1793497534633</updated>
     </task>
-    <option name="localTasksCounter" value="39" />
+    <task id="LOCAL-00039" summary="feat: Add Docker support with Dockerfile and docker-compose.yml">
+      <option name="closed" value="true" />
+      <created>1793499137907</created>
+      <option name="number" value="00039" />
+      <option name="presentableId" value="LOCAL-00039" />
+      <option name="project" value="LOCAL" />
+      <updated>1793499137907</updated>
+    </task>
+    <option name="localTasksCounter" value="40" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -615,7 +621,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Added cool features" />
     <MESSAGE value="Filters are here! :)" />
     <MESSAGE value="WTF is going on?!?!?!?!??!?!" />
     <MESSAGE value="Fixed :)" />
@@ -640,7 +645,8 @@
     <MESSAGE value="feat: Add uptime monitoring cog and update environment configuration for uptime reporting" />
     <MESSAGE value="refactor: Remove unused modules.xml and clean up requirements.txt" />
     <MESSAGE value="feat: Enhance error handling in music cog for Spotify playlist imports" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: Enhance error handling in music cog for Spotify playlist imports" />
+    <MESSAGE value="feat: Add Docker support with Dockerfile and docker-compose.yml" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: Add Docker support with Dockerfile and docker-compose.yml" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/RIPthm_V2$scratch.coverage" NAME="scratch Coverage Results" MODIFIED="1670695257354" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$APPLICATION_CONFIG_DIR$/scratches" />
