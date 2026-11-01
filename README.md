@@ -78,6 +78,24 @@
    ```bash
    ./start.sh /path/to/RipthmV2
     ```
+
+### Docker Compose
+
+Docker Compose passes settings into the container through its `environment` section; no project `.env` file is required or mounted into the container. To ensure Compose does not automatically read a local `.env` file, disable that behavior in the shell. The Compose file supports every variable in `.env.example` and the optional `VOTE_BYPASS`, `RADIOS`, and `ETERNAL_JUKEBOX_URL` settings. Set the required Discord and Lavalink credentials in your shell environment before starting:
+
+```bash
+export COMPOSE_DISABLE_ENV_FILE=1
+read -rsp "Discord token: " DISCORD_TOKEN; echo
+export DISCORD_TOKEN LAVA_ADDR="your-lavalink-host" LAVA_PORT="3000"
+read -rsp "Lavalink token: " LAVA_TOKEN; echo
+export LAVA_TOKEN
+docker compose up -d --build
+```
+
+Set optional settings in the same shell or through your deployment platform's secret injection. Defaults are provided for `OWNER_ID`, `LAVA_PORT`, and `UPTIME_INTERVAL`; other optional settings default to empty. `DEBUG_GUILDS` is passed through only when set. `.env.example` remains a reference for the available configuration variables and can still be used with the non-Docker setup.
+
+View logs with `docker compose logs -f bot` and stop the bot with `docker compose down`. The Compose service keeps the bot's `temp/` state in a named volume. Lavalink must be reachable from the container; if it is another Compose service, set `LAVA_ADDR` to that service's name. Environment variables are visible to users with access to the Docker daemon, so protect access to the host and use your deployment platform's secret injection where available.
+
 ## Usage
 - Use /play to play a song or add it to the queue.
 - Use /radio <station> to start a configured radio station (for example `/radio jazz`).

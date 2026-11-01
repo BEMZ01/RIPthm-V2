@@ -1,0 +1,28 @@
+services:
+  bot:
+    build: .
+    init: true
+    restart: unless-stopped
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN:?Set DISCORD_TOKEN in your environment}
+      OWNER_ID: ${OWNER_ID:-234248229426823168}
+      DEBUG_GUILDS:
+      LAVA_TOKEN: ${LAVA_TOKEN:?Set LAVA_TOKEN in your environment}
+      LAVA_ADDR: ${LAVA_ADDR:?Set LAVA_ADDR in your environment}
+      LAVA_PORT: ${LAVA_PORT:-3000}
+      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
+      SPOTIFY_SECRET: ${SPOTIFY_SECRET:-}
+      GENIUS_TOKEN: ${GENIUS_TOKEN:-}
+      LASTFM_API_KEY: ${LASTFM_API_KEY:-}
+      LASTFM_API_SECRET: ${LASTFM_API_SECRET:-}
+      TOPGG_TOKEN: ${TOPGG_TOKEN:-}
+      UPTIME_URL: ${UPTIME_URL:-}
+      UPTIME_INTERVAL: ${UPTIME_INTERVAL:-60}
+      VOTE_BYPASS: ${VOTE_BYPASS:-}
+      RADIOS: ${RADIOS:-}
+      ETERNAL_JUKEBOX_URL: ${ETERNAL_JUKEBOX_URL:-}
+    volumes:
+      - bot-state:/app/temp
+
+volumes:
+  bot-state:

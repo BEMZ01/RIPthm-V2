@@ -67,7 +67,7 @@ except RuntimeError:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 if os.getenv("DEBUG_GUILDS") is not None:
-    bot = commands.AutoShardedBot(intents=intents, owner_id=int(os.getenv('OWNER_ID')), debug_guilds=os.getenv("DEBUG_GUILDS").split(","))
+    bot = commands.AutoShardedBot(intents=intents, owner_id=int(os.getenv('OWNER_ID')), debug_guilds=os.getenv("DEBUG_GUILDS", "").split(","))
 else:
     bot = commands.AutoShardedBot(intents=intents, owner_id=int(os.getenv('OWNER_ID')))
 bot.logger = logger
@@ -104,7 +104,7 @@ sbClient = sb.Client()
 
 
 async def _close_with_cleanup():
-    """Wrap bot.close so shutdown cleanup runs on all exit paths (Ctrl+C, reconnect stop, etc.)."""
+    """Wrap bot.close so shutdown clean-up runs on all exit paths (Ctrl+C, reconnect stop, etc.)."""
     logger.info("Running shutdown cleanup before closing bot.")
 
     # Give cogs a chance to stop loops / tasks.
@@ -134,11 +134,11 @@ async def _close_with_cleanup():
     except Exception as e:
         logger.exception(f"Error stopping persistent delete queue: {e}")
 
-    # Call original close implementation (discord.py session and websocket cleanup).
+    # Call original close implementation (discord.py session and websocket clean-up).
     await bot._original_close()
 
 
-# Monkey-patch bot.close so cleanup is guaranteed when bot.run() shuts down.
+# Monkey-patch bot.close so clean-up is guaranteed when bot.run() shuts down.
 bot._original_close = bot.close
 bot.close = _close_with_cleanup
 
