@@ -35,8 +35,37 @@ load_dotenv()
 SPOTIFY_CLIENT_ID = str(os.getenv('SPOTIFY_CLIENT_ID'))
 SPOTIFY_CLIENT_SECRET = str(os.getenv('SPOTIFY_SECRET'))
 url_rx = re.compile(r'https?://(?:www\.)?.+')
-sp = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLIENT_ID,
-                                                                         client_secret=SPOTIFY_CLIENT_SECRET))
+sp = spotipy.Spotify(
+    client_credentials_manager=SpotifyClientCredentials(
+        client_id=SPOTIFY_CLIENT_ID,
+        client_secret=SPOTIFY_CLIENT_SECRET,
+        requests_timeout=5,
+    ),
+    requests_timeout=5,
+    retries=1,
+    status_retries=1,
+)
+
+
+def search_prefixes_for_source(source):
+    source_prefixes = {
+        "youtube": "ytsearch:",
+        "youtube_music": "ytmsearch:",
+        "spotify": "spsearch:",
+        "soundcloud": "scsearch:",
+        "twitch": "twsearch:",
+    }
+    prefixes = [source_prefixes[source]] if source in source_prefixes else []
+    prefixes.extend(("ytmsearch:", "ytsearch:"))
+    return list(dict.fromkeys(prefixes))
+
+
+def clean_artist_name(artist):
+    if artist and artist.endswith(" - Topic"):
+        return artist[:-8]
+    return artist
+
+
 PIRATE_RADIO_URL = "https://open.spotify.com/playlist/098Oij7Ia2mktRbbTkBK0X?si=f457e15700534905"
 # Keep parity with requested behavior: queue up to the top 20 tracks for artist URLs.
 ARTIST_TOP_TRACK_LIMIT = 20
@@ -422,7 +451,7 @@ class Music(commands.Cog):
         else:
             player = self.bot.lavalink.player_manager.get(self.bot.voice_clients[0].guild.id)
             if player.is_playing:
-                status = f"{player.current.title} by {player.current.author}."
+                status = f"{player.current.title} by {clean_artist_name(player.current.author)}."
             elif len(self.bot.voice_clients) > 1:
                 status = f"in {len(self.bot.voice_clients)} voice channels 🎵"
                 listening = False
@@ -990,7 +1019,10 @@ class Music(commands.Cog):
                     else:
                         embed_title = f"Live Radio • {current_radio}"
                 try:
-                    embed_description = f'**[{player.current.title}]({player.current.uri})**\n{player.current.author}'
+                    embed_description = (
+                        f'**[{player.current.title}]({player.current.uri})**\n'
+                        f'{clean_artist_name(player.current.author)}'
+                    )
                 except AttributeError:
                     embed_description = '[UNABLE TO GET TITLE]'
                 embed = discord.Embed(title=embed_title.strip(), description=embed_description, color=color)
@@ -1742,13 +1774,13 @@ class Music(commands.Cog):
                 ))
                 return None
             t_before = time.time()
-            tracks, name = await self.get_playlist_songs(query)
+            tracks, playlist_info = await self.get_playlist_songs(query)
             t_after = time.time()
             self.logger.info(f"Time taken to get tracks: {t_after - t_before}")
             if not isinstance(tracks, list):
                 await self.interaction_send(
                     ctx,
-                    content=f"👎 `Failed to import Spotify playlist. ({name})`\nThe playlist may be private, deleted, or unavailable.",
+                    content=f"👎 `Failed to import Spotify playlist. ({playlist_info})`\nThe playlist may be private, deleted, or unavailable.",
                     ephemeral=True,
                     delete_after=10,
                 )
@@ -1763,48 +1795,16 @@ class Music(commands.Cog):
                 )
                 await message.delete()
                 return None
+            name = playlist_info["name"]
             if shuffle:
                 random.shuffle(tracks)
-            try:
-                if "/album/" in query:
-                    playlist_info = sp.album(query)
-                elif "/playlist/" in query:
-                    playlist_info = sp.playlist(query)
-            except spotipy.SpotifyException as e:
-                await self.interaction_send(
-                    ctx,
-                    content=f"👎 `Failed to import Spotify playlist. ({e})`\nIs the playlist private?",
-                    ephemeral=True,
-                    delete_after=10
-                )
-                await message.delete()
-                return None
 
             start_time = time.time()
             bar_length = 12
             batch_size = max(1, len(tracks) // bar_length)
 
             async def find_playlist_track(search_query):
-                for attempt in range(1, 4):
-                    for search_prefix in ("ytmsearch:", "ytsearch:"):
-                        query_to_try = f"{search_prefix}{search_query}"
-                        try:
-                            result = await player.node.get_tracks(query_to_try)
-                        except Exception as e:
-                            self.logger.warning(
-                                f"Playlist search attempt {attempt}/3 failed for "
-                                f"'{query_to_try}': {e}"
-                            )
-                            continue
-                        if result and result.tracks:
-                            return result.tracks[0]
-                        self.logger.info(
-                            f"No tracks found on attempt {attempt}/3 for query: {query_to_try}"
-                        )
-                    if attempt < 3:
-                        await asyncio.sleep(1)
-                self.logger.warning(f"Skipping playlist track after 3 attempts: {search_query}")
-                return None
+                return await self.search_track_on_sources(player, search_query, source)
 
             for i in range(0, len(tracks), batch_size):
                 if self.stop_import:
@@ -1822,10 +1822,10 @@ class Music(commands.Cog):
                         search_query = f'{track["track"]["name"]} {track["track"]["artists"][0]["name"]}'
                     track_searches.append((search_query, find_playlist_track(search_query)))
                 results = await asyncio.gather(*(search for _, search in track_searches))
-                for (search_query, _), found_track in zip(track_searches, results):
-                    if found_track is None:
+                for (search_query, _), found_result in zip(track_searches, results):
+                    if not found_result or not found_result.tracks:
                         continue
-                    player.add(requester=ctx.author.id, track=found_track)
+                    player.add(requester=ctx.author.id, track=found_result.tracks[0])
                 if not player.is_playing:
                     await player.play()
                     if shuffle:
@@ -1874,17 +1874,27 @@ class Music(commands.Cog):
             await message.delete()
             return True
         elif query.startswith("https://open.spotify.com/track/"):
-            track = sp.track(query)
+            try:
+                track = await asyncio.to_thread(sp.track, query)
+            except spotipy.SpotifyException as e:
+                self.logger.error(f"Failed to resolve Spotify track {query}: {e}")
+                return await self.interaction_send(
+                    ctx,
+                    content="👎 `Failed to resolve that Spotify track. Please check the link and try again.`",
+                    delete_after=10,
+                    ephemeral=True,
+                )
             self.logger.info(f"Spotify track: {track['name']} by {track['artists'][0]['name']}")
-            query = f'ytmsearch:{track["name"]} {track["artists"][0]["name"]}'
+            track_name = f'{track["name"]} {track["artists"][0]["name"]}'
+            results = await self.search_track_on_sources(player, track_name, source)
         elif query.startswith("https://open.spotify.com/artist/"):
             try:
-                artist_info = sp.artist(query)
+                artist_info = await asyncio.to_thread(sp.artist, query)
                 artist_name = (artist_info.get("name") or "").strip()
                 if not artist_name:
                     raise spotipy.SpotifyException(400, -1, "Artist name not found in Spotify response.")
                 self.logger.info(f"Spotify artist: {artist_name}")
-                query = f'ytmsearch:top songs by {artist_name}'
+                query = f'{search_prefixes_for_source(source)[0]}top songs by {artist_name}'
                 artist_top_tracks = True
             except spotipy.SpotifyException:
                 return await self.interaction_send(
@@ -1894,7 +1904,8 @@ class Music(commands.Cog):
                     ephemeral=True,
                 )
         # Get the results for the query from Lavalink.
-        results = await player.node.get_tracks(query)
+        if not query.startswith("https://open.spotify.com/track/"):
+            results = await player.node.get_tracks(query)
         # Results could be None if Lavalink returns an invalid response (non-JSON/non-200 (OK)).
         # Alternatively, results.tracks could be an empty array if the query yielded no tracks.
         if not results or not results.tracks:
@@ -1971,6 +1982,19 @@ class Music(commands.Cog):
         return await ctx.respond("I can't see the spotify status. Are you listening to spotify?", ephemeral=True,
                                  delete_after=10)
 
+    async def search_track_on_sources(self, player, search_query, source):
+        for prefix in search_prefixes_for_source(source):
+            query = f"{prefix}{search_query}"
+            try:
+                results = await player.node.get_tracks(query)
+            except Exception as e:
+                self.logger.warning(f"Search failed for '{query}': {e}")
+                continue
+            if results and results.tracks:
+                return results
+            self.logger.info(f"No tracks found for query: {query}")
+        return None
+
     async def get_playlist_songs(self, playlist):
         """
         Fetch all songs from a Spotify playlist or album efficiently.
@@ -1981,10 +2005,10 @@ class Music(commands.Cog):
             # Determine if the input is a playlist or album
             is_album = "/album/" in playlist
             if is_album:
-                playlist_info = sp.album(playlist)
+                playlist_info = await asyncio.to_thread(sp.album, playlist)
                 tracks = playlist_info['tracks']
             elif "/playlist/" in playlist:
-                playlist_info = sp.playlist(playlist)
+                playlist_info = await asyncio.to_thread(sp.playlist, playlist)
                 tracks = playlist_info['tracks']
             else:
                 return False, "Not a playlist or album"
@@ -1999,12 +2023,16 @@ class Music(commands.Cog):
                         # Use album_tracks for albums, playlist_items for playlists
                         if is_album:
                             # sp.album_tracks default limit is 50, which works well
-                            result = sp.album_tracks(playlist, limit=50, offset=offset)
+                            result = await asyncio.to_thread(
+                                sp.album_tracks, playlist, limit=50, offset=offset
+                            )
                             # Return tracks with consistent structure (album tracks are direct, not wrapped)
                             return result['items'] if result else []
                         else:
                             # sp.playlist_items default limit is 50 as well
-                            result = sp.playlist_items(playlist, limit=50, offset=offset)
+                            result = await asyncio.to_thread(
+                                sp.playlist_items, playlist, limit=50, offset=offset
+                            )
                             # Playlist tracks come wrapped in a "track" object, keep the full structure
                             return result['items'] if result else []
                     except spotipy.SpotifyException as e:
@@ -2013,12 +2041,16 @@ class Music(commands.Cog):
 
             # Create tasks for all pages - use batch size of 50 for both
             batch_size = 50
-            tasks = [fetch_page(offset) for offset in range(0, total_tracks, batch_size)]
-            all_tracks = await asyncio.gather(*tasks)
+            initial_tracks = tracks.get("items") or []
+            tasks = [
+                fetch_page(offset)
+                for offset in range(len(initial_tracks), total_tracks, batch_size)
+            ]
+            all_tracks = [initial_tracks, *await asyncio.gather(*tasks)]
             # Flatten the list of tracks
             all_tracks = [track for page in all_tracks for track in page]
             self.logger.info(f"Successfully fetched {len(all_tracks)} tracks.")
-            return all_tracks, playlist_info['name']
+            return all_tracks, playlist_info
         except Exception as e:
             self.logger.error(f"Error fetching playlist songs: {e}")
             return False, str(e)
@@ -2359,7 +2391,8 @@ class Music(commands.Cog):
             return await ctx.respond('Nothing playing.', delete_after=5, ephemeral=True)
         embed.title = f'Now Playing for {ctx.guild.name}'
         embed.description = f'**Now Playing:** {player.current.title}'
-        embed.add_field(name=f"({player.current.title})[{player.current.uri}]", value=f"{player.current.author}",
+        embed.add_field(name=f"({player.current.title})[{player.current.uri}]",
+                        value=f"{clean_artist_name(player.current.author)}",
                         inline=False)
         await ctx.respond(embed=embed, delete_after=15, ephemeral=True)
 
@@ -2399,6 +2432,7 @@ class Music(commands.Cog):
             song = re.sub(r'\[[^)]*\]', '', song)
             author = re.sub(r'\([^)]*\)', '', player.current.author)
             author = re.sub(r'\[[^)]*\]', '', author)
+            author = clean_artist_name(author)
             if " - " in author:
                 author = author.split(" - ")[0]
             if " - " in song:
@@ -2602,6 +2636,8 @@ class Music(commands.Cog):
             choices=["youtube", "spotify", "youtube_music"],
             default="youtube_music")
     async def search(self, ctx: discord.ApplicationContext, query: str, service: str = "youtube_music"):
+        spotify_track_details = {}
+
         async def dropdown_callback(interaction: discord.Interaction):
             # Safely defer the interaction; if it fails the interaction is likely expired.
             if not await self.safe_defer(interaction, ephemeral=True):
@@ -2630,11 +2666,19 @@ class Music(commands.Cog):
 
             if selected_value.startswith("spotify:track:"):
                 try:
-                    sp_track_info = sp.track(selected_value)
-                    actual_track_title = sp_track_info['name']
-                    actual_track_author = sp_track_info['artists'][0]['name']
-                    query_for_lavalink = f'ytmsearch:{actual_track_title} {actual_track_author}'
-                    results_lavalink = await player.node.get_tracks(query_for_lavalink)
+                    track_details = spotify_track_details.get(selected_value)
+                    if track_details is None:
+                        sp_track_info = await asyncio.to_thread(sp.track, selected_value)
+                        track_details = (
+                            sp_track_info["name"],
+                            sp_track_info["artists"][0]["name"],
+                        )
+                    actual_track_title, actual_track_author = track_details
+                    results_lavalink = await self.search_track_on_sources(
+                        player,
+                        f"{actual_track_title} {actual_track_author}",
+                        service,
+                    )
                 except Exception as e:
                     self.logger.error(f"Error processing Spotify track URI {selected_value}: {e}")
                     await self.safe_edit_original(interaction, content=f"Error processing Spotify track: {e}", view=None)
@@ -2778,11 +2822,17 @@ class Music(commands.Cog):
 
         options = []
         if service == "spotify":
-            results_spotify = sp.search(q=query, type="track", limit=20)
+            results_spotify = await asyncio.to_thread(
+                sp.search, q=query, type="track", limit=20
+            )
             if not results_spotify or not results_spotify['tracks']['items']:
                 response_content = 'Nothing found on Spotify!'
                 await self.interaction_send(ctx, content=response_content, ephemeral=True, delete_after=10)
                 return
+            spotify_track_details = {
+                track["uri"]: (track["name"], track["artists"][0]["name"])
+                for track in results_spotify["tracks"]["items"]
+            }
             options = [{"value": track['uri'],
                         "label": limit(f"{track['name']} by {track['artists'][0]['name']}", 100)} for track in
                        results_spotify['tracks']['items']]
