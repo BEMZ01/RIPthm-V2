@@ -1688,6 +1688,24 @@ class Music(commands.Cog):
             tracks, name = await self.get_playlist_songs(query)
             t_after = time.time()
             self.logger.info(f"Time taken to get tracks: {t_after - t_before}")
+            if not isinstance(tracks, list):
+                await self.interaction_send(
+                    ctx,
+                    content=f"👎 `Failed to import Spotify playlist. ({name})`\nThe playlist may be private, deleted, or unavailable.",
+                    ephemeral=True,
+                    delete_after=10,
+                )
+                await message.delete()
+                return None
+            if not tracks:
+                await self.interaction_send(
+                    ctx,
+                    content="👎 `No tracks were found in that Spotify playlist.`",
+                    ephemeral=True,
+                    delete_after=10,
+                )
+                await message.delete()
+                return None
             if shuffle:
                 random.shuffle(tracks)
             try:
@@ -1704,6 +1722,7 @@ class Music(commands.Cog):
                 )
                 await message.delete()
                 return None
+
             start_time = time.time()
             bar_length = 12
             batch_size = max(1, len(tracks) // bar_length)
@@ -2496,18 +2515,18 @@ class Music(commands.Cog):
                     self.logger.error(
                         f"Failed to send playing_message in dropdown_callback for guild {ctx.guild.id}. "
                         f"Missing permissions.")
-                    self._delete_current_playing_message_ref()
-                    self.playing_message = None
                     await self.handle_missing_permissions(ctx, discord.Embed(
                         title="Error",
                         description=f"I cannot send messages in the {ctx.channel.name} channel. Please "
                                     f"check my permissions.",
                         color=discord.Color.red()
                     ))
-            await self.update_playing_message(ctx)
-            return None
-        else:
-            return await ctx.respond('Nothing playing.', delete_after=5, ephemeral=True)
+                except discord.errors.HTTPException as e:
+                    self.logger.error(
+                        f"Failed to send playing_message in dropdown_callback for guild {ctx.guild.id}: {e}")
+                except AttributeError:
+                    self.logger.error(
+                        f"interaction.channel is None or interaction object is malformed for guild {ctx.guild.id}.")
 
     @commands.slash_command(name="search", description="Search for a song, and add it to the queue.")
     @option(name="query", description="The song to search for", required=True)
@@ -2580,11 +2599,15 @@ class Music(commands.Cog):
                 if (not player.is_playing and len(player.queue) == 1 and
                         player.queue[0].identifier == track_to_play.identifier):
                     player.queue.pop(0)
-                    response_message_content = (f"🎶 Track **{final_track_display_name}** removed. Join a voice "
-                                                f"channel to play music.")
+                    response_message_content = (
+                        f"🎶 Track **{final_track_display_name}** removed. Join a voice "
+                        f"channel to play music."
+                    )
                 else:
-                    response_message_content = (f"🎶 Track **{final_track_display_name}** added to queue. Join a voice "
-                                                f"channel to play.")
+                    response_message_content = (
+                        f"🎶 Track **{final_track_display_name}** added to queue. Join a voice "
+                        f"channel to play."
+                    )
                 await self.safe_edit_original(interaction, content=response_message_content, view=None)
                 return
 
@@ -2733,4 +2756,3 @@ class Music(commands.Cog):
             await self.interaction_send(ctx, content=response_content, ephemeral=True, delete_after=10)
 def setup(bot):
     bot.add_cog(Music(bot, bot.logger))
-

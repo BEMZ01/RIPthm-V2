@@ -7,10 +7,10 @@
     <option name="selectedModelId" value="auto" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="feat: Add uptime monitoring cog and update environment configuration for uptime reporting">
-      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" />
+    <list default="true" id="3d0bb779-2582-435d-9b0a-3e7231ba5a52" name="Changes" comment="refactor: Remove unused modules.xml and clean up requirements.txt">
+      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cogs/cog_music.py" beforeDir="false" afterPath="$PROJECT_DIR$/cogs/cog_music.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -62,6 +62,7 @@
   <component name="CopilotPersistence">
     <persistenceIdMap>
       <entry key="_/media/gamedisk/HDD/PycharmProjects/RIPthm-V2" value="2FmJCmfcU0by2MvQE6Dre8k236W" />
+      <entry key="_/media/gamedisk/SSD/PycharmProjects/RIPthm-V2" value="3LU7zKTVReWnEfuBB6g9gg7nQQT" />
     </persistenceIdMap>
   </component>
   <component name="CopilotUserSelectedChatMode">
@@ -93,7 +94,7 @@
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
     &quot;url&quot;: &quot;https://github.com/BEMZ01/RIPthm-V2.git&quot;,
-    &quot;accountId&quot;: &quot;56dce0d8-1862-477d-93eb-4d692986fe47&quot;
+    &quot;accountId&quot;: &quot;965ee35d-922c-4428-b8a4-9bf56f46400a&quot;
   }
 }</component>
   <component name="MarkdownSettingsMigration">
@@ -107,10 +108,11 @@
   <component name="ProjectSessionTemplates">
     <option name="panelTemplate">
       <template>
+        <option name="ensembleEnabled" value="false" />
         <option name="modeId" value="Agent" />
         <option name="model">
           <model>
-            <option name="modelType" value="builtin_family" />
+            <option name="modelType" value="builtin_id" />
             <option name="modelValue" value="auto" />
           </model>
         </option>
@@ -118,6 +120,7 @@
         <option name="worktreeMode" value="WORKSPACE" />
       </template>
     </option>
+    <option name="version" value="1" />
   </component>
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
@@ -126,6 +129,7 @@
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
     "ASKED_ADD_EXTERNAL_FILES": "true",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
     "Python.main.executor": "Run",
     "RunOnceActivity.OpenProjectViewOnStart": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
@@ -575,7 +579,15 @@
       <option name="project" value="LOCAL" />
       <updated>1780841506342</updated>
     </task>
-    <option name="localTasksCounter" value="37" />
+    <task id="LOCAL-00037" summary="refactor: Remove unused modules.xml and clean up requirements.txt">
+      <option name="closed" value="true" />
+      <created>1792609922422</created>
+      <option name="number" value="00037" />
+      <option name="presentableId" value="LOCAL-00037" />
+      <option name="project" value="LOCAL" />
+      <updated>1792609922422</updated>
+    </task>
+    <option name="localTasksCounter" value="38" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -593,7 +605,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Fixed some stuff here and there" />
     <MESSAGE value="RIPTHM v3 Starts here!" />
     <MESSAGE value="Added cool features" />
     <MESSAGE value="Filters are here! :)" />
@@ -618,7 +629,8 @@
     <MESSAGE value="feat: Implement radio queue state management for improved user experience" />
     <MESSAGE value="feat: Implement safe interaction deferral to enhance error handling in music cog" />
     <MESSAGE value="feat: Add uptime monitoring cog and update environment configuration for uptime reporting" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: Add uptime monitoring cog and update environment configuration for uptime reporting" />
+    <MESSAGE value="refactor: Remove unused modules.xml and clean up requirements.txt" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor: Remove unused modules.xml and clean up requirements.txt" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/RIPthm_V2$scratch.coverage" NAME="scratch Coverage Results" MODIFIED="1670695257354" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$APPLICATION_CONFIG_DIR$/scratches" />
